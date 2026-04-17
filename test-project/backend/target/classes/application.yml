@@ -1,0 +1,31 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: gestione-utenti-pa
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/utenti_pa
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME:admin}
+    password: ${DB_PASSWORD:admin}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+      expiration: 86400000
+
+logging:
+  level:
+    root: INFO
+    it.gov.protocollo: DEBUG

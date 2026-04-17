@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docgen"
+version = "1.0.0"
+description = "Generatore automatico di documentazione da codebase per la PA"
+requires-python = ">=3.9"
+dependencies = [
+    "anthropic>=0.30.0",
+    "python-docx>=1.1.0",
+    "rich>=13.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+docgen = "docgen.main:main"

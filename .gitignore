@@ -1,0 +1,6 @@
+.codesight
+.pytest_cache
+.vscode
+docgen_output
+docgen.egg-info
+.DS_Store

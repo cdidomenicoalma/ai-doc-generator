@@ -1,0 +1,52 @@
+<div class="utenti-container">
+  <h1>Gestione Utenti</h1>
+
+  <div class="search-bar">
+    <input type="text"
+           [(ngModel)]="searchTerm"
+           placeholder="Cerca per ente di appartenenza..."
+           (keyup.enter)="onSearch()">
+    <button (click)="onSearch()">Cerca</button>
+  </div>
+
+  <div *ngIf="loading" class="loading">
+    <p>Caricamento in corso...</p>
+  </div>
+
+  <div *ngIf="errorMessage" class="error">
+    <p>{{ errorMessage }}</p>
+  </div>
+
+  <table *ngIf="!loading && utenti.length > 0" class="utenti-table">
+    <thead>
+      <tr>
+        <th>Codice Fiscale</th>
+        <th>Nome</th>
+        <th>Cognome</th>
+        <th>Email</th>
+        <th>Ruolo</th>
+        <th>Ente</th>
+        <th>Azioni</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let utente of utenti">
+        <td>{{ utente.codiceFiscale }}</td>
+        <td>{{ utente.nome }}</td>
+        <td>{{ utente.cognome }}</td>
+        <td>{{ utente.email }}</td>
+        <td>{{ utente.ruolo }}</td>
+        <td>{{ utente.enteAppartenenza }}</td>
+        <td>
+          <button (click)="deleteUtente(utente.id)" class="btn-delete">
+            Disattiva
+          </button>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p *ngIf="!loading && utenti.length === 0">
+    Nessun utente trovato.
+  </p>
+</div>
