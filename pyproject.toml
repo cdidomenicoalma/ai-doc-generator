@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "docgen"
 version = "1.0.0"
-description = "Generatore automatico di documentazione da codebase per la PA"
+description = "Generatore automatico di documentazione da codebase"
 requires-python = ">=3.9"
 dependencies = [
     "anthropic>=0.30.0",

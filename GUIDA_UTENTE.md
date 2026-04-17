@@ -2,7 +2,7 @@
 
 ## 1. Cos'è DocGen
 
-DocGen è uno strumento da riga di comando (CLI) che analizza automaticamente il codice sorgente di un progetto software e genera documentazione professionale conforme agli standard della PA italiana.
+DocGen è uno strumento da riga di comando (CLI) che analizza automaticamente il codice sorgente di un progetto software e genera documentazione professionale.
 
 ### Cosa produce
 

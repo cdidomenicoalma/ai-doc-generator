@@ -276,7 +276,7 @@ L'obiettivo è descrivere come i microservizi collaborano tra loro, NON ripetere
 ### 1.1 Scopo del documento
 Questo documento descrive l'architettura complessiva del sistema, le integrazioni tra i microservizi e i flussi operativi end-to-end.
 ### 1.2 Panoramica del sistema
-Descrizione di alto livello: cosa fa il sistema, per chi, in quale contesto (PA italiana).
+Descrizione di alto livello: cosa fa il sistema, per chi, in quale contesto (se si capisce).
 
 ## 2. Mappa dei microservizi
 ### 2.1 Elenco microservizi

@@ -35,7 +35,7 @@ console = Console()
 def _print_banner() -> None:
     console.print(Panel.fit(
         "[bold blue]DocGen[/bold blue] — Generatore Automatico di Documentazione\n"
-        "[dim]Analizza codebase e genera documentazione professionale per la PA[/dim]",
+        "[dim]Analizza codebase e genera documentazione professionale[/dim]",
         border_style="blue",
     ))
 
