@@ -143,6 +143,63 @@ class ProjectAnalysis:
 
         return "\n".join(lines) if lines else "Nessuna informazione strutturale rilevata."
 
+    def summary_text_for_module(self, module_name: str) -> str:
+        """Produce un riepilogo testuale filtrato per un singolo modulo.
+
+        Filtra endpoint, entità, route, componenti per quelli il cui file
+        inizia col prefisso del modulo.
+        """
+        lines: list[str] = []
+
+        mod_endpoints = [ep for ep in self.endpoints if ep.file.startswith(module_name + "/") or ep.file.startswith(module_name + os.sep)]
+        if mod_endpoints:
+            lines.append("## Endpoint REST rilevati")
+            for ep in mod_endpoints:
+                lines.append(f"- {ep.method} {ep.path}  →  {ep.handler} ({ep.file})")
+            lines.append("")
+
+        mod_entities = [ent for ent in self.entities if ent.file.startswith(module_name + "/") or ent.file.startswith(module_name + os.sep)]
+        if mod_entities:
+            lines.append("## Entità rilevate")
+            for ent in mod_entities:
+                table_info = f" (tabella: {ent.table})" if ent.table else ""
+                lines.append(f"### {ent.name}{table_info}")
+                for fld in ent.fields:
+                    lines.append(f"  - {fld}")
+                lines.append(f"  File: {ent.file}")
+            lines.append("")
+
+        mod_routes = [r for r in self.routes if r.file.startswith(module_name + "/") or r.file.startswith(module_name + os.sep)]
+        if mod_routes:
+            lines.append("## Route frontend rilevate")
+            for r in mod_routes:
+                lazy = " [LAZY]" if r.lazy else ""
+                lines.append(f"- /{r.path} → {r.component}{lazy} ({r.file})")
+            lines.append("")
+
+        mod_components = [c for c in self.components if c.file.startswith(module_name + "/") or c.file.startswith(module_name + os.sep)]
+        if mod_components:
+            lines.append("## Componenti frontend rilevati")
+            for c in mod_components:
+                lines.append(f"- {c.name} (selector: {c.selector}) — {c.file}")
+            lines.append("")
+
+        # Dipendenze e DB: mostrate solo se il progetto non è multi-modulo o come fallback
+        if self.db_info.url:
+            lines.append("## Configurazione Database")
+            lines.append(f"- URL: {self.db_info.url}")
+            if self.db_info.driver:
+                lines.append(f"- Driver: {self.db_info.driver}")
+            if self.db_info.port:
+                lines.append(f"- Server Port: {self.db_info.port}")
+            lines.append("")
+
+        # Fallback: se non c'è nulla di specifico, ritorna il summary completo
+        if not lines:
+            return self.summary_text()
+
+        return "\n".join(lines)
+
 
 # ── Estrattori ───────────────────────────────────────────────────────────────
 

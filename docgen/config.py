@@ -16,7 +16,7 @@ COST_OUTPUT_PER_M = 15.0
 IGNORE_DIRS: set[str] = {
     ".git", "node_modules", "target", "build", "dist", "__pycache__",
     ".angular", ".gradle", ".mvn", ".idea", ".vscode", ".settings",
-    "bin", "obj", ".next", ".nuxt", "coverage", ".nyc_output",
+    "bin", "obj", "wwwroot", ".next", ".nuxt", "coverage", ".nyc_output",
     "vendor", ".tox", ".eggs", "*.egg-info", ".pytest_cache",
     ".mypy_cache", ".ruff_cache", "DocGen",
 }
@@ -24,7 +24,7 @@ IGNORE_DIRS: set[str] = {
 # Estensioni da includere
 INCLUDE_EXTENSIONS: set[str] = {
     ".java", ".ts", ".html", ".xml", ".yml", ".yaml", ".properties",
-    ".json", ".md", ".py", ".cs", ".css", ".scss", ".sql",
+    ".json", ".md", ".py", ".cs", ".cshtml", ".css", ".scss", ".sql",
     ".csproj", ".sln",
     ".js", ".go", ".rs", ".rb", ".php", ".toml",
     ".prisma",
@@ -42,7 +42,18 @@ INCLUDE_FILENAMES: set[str] = {
 }
 
 # Limiti
-MAX_FILE_CHARS = 15_000       # Tronca file oltre questa soglia
+MAX_FILE_CHARS = 40_000       # Tronca file oltre questa soglia (default)
+
+# Limiti di troncamento adattivi per categoria
+TRUNCATION_LIMITS: dict[str, int] = {
+    "business_critical": 80_000,
+    "service": 80_000,
+    "controller": 80_000,
+    "entity": 40_000,
+    "config": 40_000,
+    "dbcontext": 40_000,
+}
+# Categorie non presenti usano MAX_FILE_CHARS come fallback
 MAX_FILE_BYTES = 500_000      # Salta file oltre 500KB
 DEFAULT_CHUNK_BUDGET = 120_000 # Token per chunk
 DEFAULT_MAX_TOKENS = 200_000  # Max token contesto modello

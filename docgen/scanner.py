@@ -141,8 +141,8 @@ PRIORITY_MAP: dict[str, str] = {
     "dbcontext": "alta",
     "business_critical": "alta",
     "middleware": "media",
-    "service": "media",
-    "angular_service": "media",
+    "service": "alta",
+    "angular_service": "alta",
     "component": "media",
     "repository": "media",
     "dto": "media",
@@ -286,21 +286,33 @@ def _classify_file(rel_path: str, extension: str, content: str) -> str:
         if "[Table(" in content or "[Key]" in content:
             return "entity"
 
-    # Classificazione per path/nome (Java generico)
+    # ── Business-critical detection (cross-language) ──────────────────
+    # Check per nome file/path — PRIMA di JAVA_CATEGORIES per evitare
+    # che pattern generici come "util" catturino file come StatusEnum.java.
+    # Ma se il path matcha un JAVA_CATEGORIES noto, rispetta quello:
+    # es. src/main/controller/FooHandler.java → controller, non business_critical.
+    path_matches_known_cat = any(pat in lower_path for pat, _ in JAVA_CATEGORIES)
+    if not path_matches_known_cat:
+        basename_no_ext = os.path.splitext(basename)[0].lower()
+        for kw in BUSINESS_CRITICAL_NAME_PATTERNS:
+            if kw in basename_no_ext or kw in lower_path:
+                return "business_critical"
+
+    # Check per contenuto (Python, .py files, ecc.)
+    if content and extension not in (".java", ".ts") and _BUSINESS_CRITICAL_CONTENT_RE.search(content):
+        return "business_critical"
+
+    # Classificazione per path/nome (Java generico) — DOPO business-critical
     for pattern, cat in JAVA_CATEGORIES:
         if pattern in lower_path:
             return cat
 
-    # ── Business-critical detection (cross-language, after framework-specific) ──
-    # Check per nome file/path
-    basename_no_ext = os.path.splitext(basename)[0].lower()
-    for kw in BUSINESS_CRITICAL_NAME_PATTERNS:
-        if kw in basename_no_ext or kw in lower_path:
-            return "business_critical"
-
-    # Check per contenuto
-    if content and _BUSINESS_CRITICAL_CONTENT_RE.search(content):
-        return "business_critical"
+    # Fallback: nome-based BC check per file in path noti (solo se il nome è BC)
+    if path_matches_known_cat:
+        basename_no_ext = os.path.splitext(basename)[0].lower()
+        for kw in BUSINESS_CRITICAL_NAME_PATTERNS:
+            if kw in basename_no_ext:
+                return "business_critical"
 
     return "altro"
 
@@ -409,11 +421,14 @@ def scan_project(config: DocGenConfig) -> ScanResult:
                 result.error_count += 1
                 continue
 
-            # Tronca se necessario
-            content, truncated = _truncate_content(content, config.max_file_chars)
-
-            # Classifica
+            # Classifica prima (serve per troncamento adattivo)
             category = _classify_file(rel_path, ext, content)
+
+            # Tronca se necessario — limite adattivo per categoria
+            from .config import TRUNCATION_LIMITS
+            trunc_limit = TRUNCATION_LIMITS.get(category, config.max_file_chars)
+            content, truncated = _truncate_content(content, trunc_limit)
+
             priority = PRIORITY_MAP.get(category, "bassa")
             module = _detect_module(rel_path, root)
             seen_modules.add(module)

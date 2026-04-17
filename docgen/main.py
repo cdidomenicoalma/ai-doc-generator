@@ -261,7 +261,7 @@ def _estimate_hybrid_cost(module_plans: dict[str, ChunkPlan], analysis_tokens: i
         # Fase 2-3: func + tech doc — input = analisi troncate + static_analysis + prompt
         synthesis_analyses = min(phase1_output, 100_000)
         synthesis_input_per_doc = synthesis_analyses + static_tokens + 3000 + call_overhead
-        phase23_output = 16000  # 8K per doc
+        phase23_output = 32000  # 16K per doc (max_output_tokens=16384)
 
         # Fase summary — input = analisi troncate + prompt (no static)
         summary_input = min(phase1_output, 100_000) + 3000 + call_overhead
@@ -273,7 +273,7 @@ def _estimate_hybrid_cost(module_plans: dict[str, ChunkPlan], analysis_tokens: i
     # Doc architettura sistema — riceve tutti i summary + static + prompt
     arch_input = len(module_plans) * 1500 + static_tokens + 3000 + call_overhead
     total_input += arch_input
-    total_output += 8000
+    total_output += 16000  # max_output_tokens=16384
 
     return (
         (total_input / 1_000_000) * COST_INPUT_PER_M
@@ -662,6 +662,221 @@ def _build_detection_reason(file: 'ScannedFile') -> str:
     return "; ".join(reasons) if reasons else "pattern business-critical"
 
 
+# ── Urgency grouping (P7) ───────────────────────────────────────────────
+
+# Categorie raggruppate per urgenza visiva
+_URGENCY_RED = {"business_critical", "controller", "service"}
+_URGENCY_YELLOW = {"entity", "repository", "config", "dto", "dbcontext", "angular_service", "angular_component", "angular_module"}
+# Tutto il resto → ⚪
+
+
+def _file_urgency(f: 'ScannedFile') -> str:
+    """Restituisce l'emoji urgenza per un file."""
+    if f.category in _URGENCY_RED:
+        return "🔴"
+    if f.category in _URGENCY_YELLOW:
+        return "🟡"
+    return "⚪"
+
+
+def _append_urgency_file_list(lines: list[str], files: list['ScannedFile']) -> None:
+    """Aggiunge al buffer la lista file raggruppata per urgenza (P7)."""
+    red_files = [f for f in files if f.category in _URGENCY_RED]
+    yellow_files = [f for f in files if f.category in _URGENCY_YELLOW]
+    white_files = [f for f in files if f.category not in _URGENCY_RED and f.category not in _URGENCY_YELLOW]
+
+    if red_files:
+        lines.append("### 🔴 Obbligatori — leggere SEMPRE\n")
+        lines.append("Contengono la logica di business principale, controller e servizi critici.\n")
+        for f in sorted(red_files, key=lambda x: (x.category, x.path)):
+            extra = ""
+            if f.category == "business_critical":
+                reason = _build_detection_reason(f)
+                extra = f" → {reason}" if reason else ""
+            lines.append(f"- `{f.path}` [{f.category}]{extra}")
+        lines.append("")
+
+    if yellow_files:
+        lines.append("### 🟡 Importanti — leggere se necessario\n")
+        lines.append("Entità, repository, configurazioni e DTO di supporto.\n")
+        for f in sorted(yellow_files, key=lambda x: (x.category, x.path)):
+            lines.append(f"- `{f.path}` [{f.category}]")
+        lines.append("")
+
+    if white_files:
+        lines.append("### ⚪ Supporto — leggere solo se serve contesto aggiuntivo\n")
+        lines.append("Test, utility, stili e file di supporto.\n")
+        for f in sorted(white_files, key=lambda x: (x.category, x.path)):
+            lines.append(f"- `{f.path}` [{f.category}]")
+        lines.append("")
+
+
+# ── Per-microservice context generation (P6) ─────────────────────────────
+
+def _generate_module_context_md(
+    module_name: str,
+    module_files: list['ScannedFile'],
+    analysis: ProjectAnalysis,
+    config: DocGenConfig,
+) -> str:
+    """Genera il contesto per un singolo microservizio."""
+    lines: list[str] = []
+
+    lines.append(f"# Microservizio: {module_name}")
+    lines.append(f"\n> Progetto: {config.project_name}")
+    lines.append(f"> Generato da DocGen il {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
+
+    # Statistiche modulo
+    lines.append("## Statistiche\n")
+    lines.append(f"- **File**: {len(module_files)}")
+    ext_counts: dict[str, int] = {}
+    for f in module_files:
+        ext_counts[f.extension] = ext_counts.get(f.extension, 0) + 1
+    lang_list = ", ".join(f"{ext} ({c})" for ext, c in sorted(ext_counts.items(), key=lambda x: -x[1])[:10])
+    lines.append(f"- **Linguaggi**: {lang_list}")
+    lines.append("")
+
+    # Analisi statica filtrata per questo modulo
+    module_analysis = analysis.summary_text_for_module(module_name)
+    if module_analysis:
+        lines.append(module_analysis)
+        lines.append("")
+
+    # File per urgenza (P7)
+    lines.append("## File del microservizio\n")
+    _append_urgency_file_list(lines, module_files)
+
+    # Istruzioni specifiche per questo modulo
+    lines.append("---\n")
+    lines.append("## Documenti da generare\n")
+    lines.append(f"Per questo microservizio genera:\n")
+    lines.append(f"1. `{module_name}/specifica_funzionale.md`")
+    lines.append(f"2. `{module_name}/specifica_tecnica.md`\n")
+    lines.append("Leggi i file 🔴 obbligatoriamente. Per i file 🟡, leggili se servono dettagli su entità o configurazioni. "
+                  "I file ⚪ solo se hai bisogno di contesto aggiuntivo.\n")
+
+    return "\n".join(lines)
+
+
+def _generate_instructions_md(
+    config: DocGenConfig,
+    module_names: list[str],
+) -> str:
+    """Genera le istruzioni generali per l'agente (linguaggio naturale, no placeholder Python)."""
+    lines: list[str] = []
+
+    lines.append("# Istruzioni per la generazione della documentazione")
+    lines.append(f"\n> Progetto: {config.project_name}\n")
+
+    lines.append("## Ruolo\n")
+    lines.append(
+        "Sei un agente AI con accesso al filesystem del progetto. "
+        "Hai a disposizione i file di contesto per ogni microservizio e puoi leggere qualsiasi file "
+        "direttamente dalla workspace.\n\n"
+        "NON ti serve che il codice sia incollato nei prompt — leggi i file dal filesystem quando necessario.\n"
+    )
+
+    lines.append("## Piano di lavoro\n")
+    lines.append("Procedi nell'ordine seguente:\n")
+
+    for i, mod_name in enumerate(module_names, 1):
+        lines.append(
+            f"{i}. Leggi il file `docgen_context_{mod_name}.md`, "
+            f"poi genera `{mod_name}/specifica_funzionale.md` e `{mod_name}/specifica_tecnica.md`."
+        )
+
+    n = len(module_names) + 1
+    lines.append(
+        f"{n}. Dopo aver completato tutti i microservizi, genera i documenti d'insieme:\n"
+        f"   - `architettura_sistema.md` — come i microservizi collaborano, API interne, flussi principali\n"
+        f"   - `specifica_funzionale_completa.md` — visione funzionale end-to-end del sistema\n"
+        f"   - `specifica_tecnica_completa.md` — visione tecnica end-to-end del sistema\n"
+    )
+
+    lines.append("## Regole di lettura file\n")
+    lines.append("- File 🔴 (obbligatori): leggili SEMPRE prima di generare il documento.")
+    lines.append("- File 🟡 (importanti): leggili se servono dettagli su entità, repository o configurazioni.")
+    lines.append("- File ⚪ (supporto): leggili solo se hai bisogno di contesto aggiuntivo.")
+    lines.append("- Per i file classificati come business_critical, leggi SEMPRE il contenuto completo.\n")
+
+    lines.append("## Formato output\n")
+    lines.append("Tutti i documenti devono essere in Markdown. Scrivi in italiano.\n")
+
+    # Template
+    lines.append("---\n")
+    lines.append("## Template: Specifica Funzionale\n")
+    lines.append("Segui ESATTAMENTE questa struttura per il documento funzionale:\n")
+    func_instructions = FUNCTIONAL_DOC.split("## Istruzioni")[1] if "## Istruzioni" in FUNCTIONAL_DOC else FUNCTIONAL_DOC
+    lines.append(func_instructions.strip())
+    lines.append("")
+
+    lines.append("---\n")
+    lines.append("## Template: Specifica Tecnica\n")
+    lines.append("Segui ESATTAMENTE questa struttura per il documento tecnico:\n")
+    tech_instructions = TECHNICAL_DOC.split("## Istruzioni")[1] if "## Istruzioni" in TECHNICAL_DOC else TECHNICAL_DOC
+    lines.append(tech_instructions.strip())
+    lines.append("")
+
+    lines.append("---\n")
+    lines.append("## Template: Architettura di Sistema\n")
+    lines.append("Segui ESATTAMENTE questa struttura per il documento di architettura:\n")
+    arch_instructions = SYSTEM_ARCHITECTURE_DOC.split("## Istruzioni")[1] if "## Istruzioni" in SYSTEM_ARCHITECTURE_DOC else SYSTEM_ARCHITECTURE_DOC
+    lines.append(arch_instructions.strip())
+    lines.append("")
+
+    lines.append("---\n")
+    lines.append(f"## Output\n")
+    lines.append(f"Salva tutti i documenti generati in: `{config.output_dir}`\n")
+
+    return "\n".join(lines)
+
+
+def _generate_index_md(
+    config: DocGenConfig,
+    module_names: list[str],
+    is_hybrid: bool,
+) -> str:
+    """Genera l'indice dei file di export."""
+    lines: list[str] = []
+
+    lines.append(f"# DocGen Agent Export — {config.project_name}")
+    lines.append(f"\n> Generato il {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
+
+    lines.append("## File generati\n")
+
+    if is_hybrid and module_names:
+        lines.append("| File | Descrizione |")
+        lines.append("|------|-------------|")
+        lines.append("| `docgen_instructions.md` | Istruzioni generali + template documenti |")
+        for mod in module_names:
+            lines.append(f"| `docgen_context_{mod}.md` | Contesto e file del microservizio {mod} |")
+        lines.append("| `docgen_files.json` | Dati machine-readable (tutti i file) |")
+        lines.append("| `docgen_index.md` | Questo file |")
+    else:
+        lines.append("| File | Descrizione |")
+        lines.append("|------|-------------|")
+        lines.append("| `docgen_context.md` | Contesto completo + istruzioni + template |")
+        lines.append("| `docgen_files.json` | Dati machine-readable |")
+        lines.append("| `docgen_index.md` | Questo file |")
+
+    lines.append("")
+    lines.append("## Come usare\n")
+    if is_hybrid and module_names:
+        lines.append(
+            "1. Passa `docgen_instructions.md` all'agente come prompt iniziale.\n"
+            "2. L'agente leggerà i file `docgen_context_*.md` uno alla volta per ogni microservizio.\n"
+            "3. Per ogni microservizio genererà specifica funzionale e tecnica.\n"
+            "4. Infine genererà i documenti d'insieme (architettura, funzionale completa, tecnica completa).\n"
+        )
+    else:
+        lines.append(
+            "Passa `docgen_context.md` come prompt all'agente (Copilot, Kilo Code, Claude Code).\n"
+            "L'agente leggerà i file dal workspace e genererà la documentazione.\n"
+        )
+
+    return "\n".join(lines)
+
+
 def _generate_context_md(
     scan_result: ScanResult,
     analysis: ProjectAnalysis,
@@ -697,35 +912,9 @@ def _generate_context_md(
     lines.append(analysis.summary_text())
     lines.append("")
 
-    # File classificati per categoria, raggruppati per priorità
-    lines.append("## File classificati per categoria\n")
-    by_cat = scan_result.files_by_category()
-
-    # Ordina: business_critical prima, poi per priorità
-    priority_order = {"alta": 0, "media": 1, "bassa": 2}
-    sorted_cats = sorted(
-        by_cat.keys(),
-        key=lambda c: (0 if c == "business_critical" else 1, priority_order.get(
-            by_cat[c][0].priority if by_cat[c] else "bassa", 2
-        ), c),
-    )
-
-    for cat in sorted_cats:
-        files = by_cat[cat]
-        if not files:
-            continue
-        prio = files[0].priority
-        label = "ALTA — leggere OBBLIGATORIAMENTE" if prio == "alta" else (
-            "MEDIA" if prio == "media" else "BASSA — leggere solo se necessario"
-        )
-        lines.append(f"### {cat} (priorità {label})\n")
-        for f in sorted(files, key=lambda x: x.path):
-            extra = ""
-            if cat == "business_critical":
-                reason = _build_detection_reason(f)
-                extra = f" → {reason}" if reason else ""
-            lines.append(f"- `{f.path}`{extra}")
-        lines.append("")
+    # File classificati per urgenza (P7)
+    lines.append("## File classificati per urgenza\n")
+    _append_urgency_file_list(lines, scan_result.files)
 
     # ── Istruzioni per l'agente ──────────────────────────────────────
     lines.append("---\n")
@@ -752,7 +941,7 @@ def _generate_context_md(
         lines.append(f"   - `specifica_tecnica_completa.md` — visione tecnica end-to-end\n")
 
         lines.append("### Procedura:\n")
-        lines.append("1. Per ogni microservizio, leggi i file con priorità ALTA e MEDIA dalla lista sopra")
+        lines.append("1. Per ogni microservizio, leggi i file 🔴 (obbligatori) e 🟡 (se necessario) dalla lista sopra")
         lines.append("2. Genera specifica funzionale e tecnica per quel microservizio")
         lines.append("3. Dopo aver completato tutti i microservizi, genera i documenti d'insieme")
         lines.append("4. Il documento di architettura si concentra sulle INTEGRAZIONI tra servizi\n")
@@ -763,7 +952,7 @@ def _generate_context_md(
         lines.append("1. `specifica_funzionale.md`")
         lines.append("2. `specifica_tecnica.md`\n")
         lines.append("### Procedura:\n")
-        lines.append("1. Leggi i file con priorità ALTA e MEDIA dalla lista sopra")
+        lines.append("1. Leggi i file 🔴 (obbligatori) e 🟡 (se necessario) dalla lista sopra")
         lines.append("2. Per i file business_critical, leggi SEMPRE il contenuto completo")
         lines.append("3. Genera i due documenti seguendo i template sotto\n")
 
@@ -896,42 +1085,100 @@ def _agent_export(
     is_hybrid: bool,
     module_plans: dict[str, ChunkPlan] | None,
 ) -> None:
-    """Esegue l'export per modalità agent-ready."""
+    """Esegue l'export per modalità agent-ready.
+
+    Per progetti multi-microservizio (P6): genera file separati per modulo.
+    Per progetti singoli: genera docgen_context.md monolitico.
+    """
     out_path = Path(config.output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
-    # 1. docgen_context.md
-    context_md = _generate_context_md(scan_result, analysis, config, is_hybrid, module_plans)
-    context_path = out_path / "docgen_context.md"
-    context_path.write_text(context_md, encoding="utf-8")
-    console.print(f"  [green]✓[/green] {context_path.name} ({len(context_md):,} caratteri)")
-
-    # 2. docgen_files.json
-    files_data = _generate_files_json(scan_result, analysis, config, is_hybrid)
-    json_path = out_path / "docgen_files.json"
-    json_path.write_text(
-        json.dumps(files_data, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    console.print(f"  [green]✓[/green] {json_path.name} ({len(files_data['files'])} file)")
-
-    # Riepilogo
-    n_docs = "5 documenti" if is_hybrid and module_plans else "2 documenti"
     if is_hybrid and module_plans:
-        n_docs = f"{len(module_plans) * 2 + 3} documenti ({len(module_plans)} microservizi × 2 + 3 d'insieme)"
+        # ── P6: export per-microservizio ─────────────────────────────
+        sorted_modules = sorted(module_plans.keys())
+        by_module = scan_result.files_by_module()
 
-    console.print(Panel(
-        f"[bold green]Agent export completato![/bold green]\n\n"
-        f"File generati:\n"
-        f"  • [bold]{context_path.name}[/bold] — contesto strutturato + istruzioni + template\n"
-        f"  • [bold]{json_path.name}[/bold] — dati machine-readable\n\n"
-        f"Documenti da generare: {n_docs}\n"
-        f"Output in: {config.output_dir}\n\n"
-        f"[bold]Come usare:[/bold]\n"
-        f"Passa `docgen_context.md` come prompt all'agente (Copilot, Kilo Code, Claude Code).\n"
-        f"L'agente leggerà i file dal workspace e genererà la documentazione.",
-        border_style="green",
-    ))
+        # 1. docgen_instructions.md — istruzioni + template (no dati)
+        instr_md = _generate_instructions_md(config, sorted_modules)
+        instr_path = out_path / "docgen_instructions.md"
+        instr_path.write_text(instr_md, encoding="utf-8")
+        console.print(f"  [green]✓[/green] {instr_path.name} ({len(instr_md):,} caratteri)")
+
+        # 2. docgen_context_{module}.md — uno per microservizio
+        for mod_name in sorted_modules:
+            mod_files = by_module.get(mod_name, [])
+            mod_md = _generate_module_context_md(mod_name, mod_files, analysis, config)
+            mod_path = out_path / f"docgen_context_{mod_name}.md"
+            mod_path.write_text(mod_md, encoding="utf-8")
+            console.print(f"  [green]✓[/green] {mod_path.name} ({len(mod_md):,} caratteri, {len(mod_files)} file)")
+
+        # 3. docgen_index.md — indice file generati
+        index_md = _generate_index_md(config, sorted_modules, is_hybrid=True)
+        index_path = out_path / "docgen_index.md"
+        index_path.write_text(index_md, encoding="utf-8")
+        console.print(f"  [green]✓[/green] {index_path.name}")
+
+        # 4. docgen_files.json — dati machine-readable (come prima)
+        files_data = _generate_files_json(scan_result, analysis, config, is_hybrid)
+        json_path = out_path / "docgen_files.json"
+        json_path.write_text(
+            json.dumps(files_data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        console.print(f"  [green]✓[/green] {json_path.name} ({len(files_data['files'])} file)")
+
+        n_docs = f"{len(module_plans) * 2 + 3} documenti ({len(module_plans)} microservizi × 2 + 3 d'insieme)"
+        n_files = 3 + len(sorted_modules)  # instructions + N contexts + index + json
+        console.print(Panel(
+            f"[bold green]Agent export completato![/bold green]\n\n"
+            f"File generati: {n_files + 1}\n"
+            f"  • [bold]docgen_instructions.md[/bold] — istruzioni generali + template\n"
+            + "".join(f"  • [bold]docgen_context_{m}.md[/bold] — contesto {m}\n" for m in sorted_modules)
+            + f"  • [bold]docgen_index.md[/bold] — indice\n"
+            f"  • [bold]docgen_files.json[/bold] — dati machine-readable\n\n"
+            f"Documenti da generare: {n_docs}\n"
+            f"Output in: {config.output_dir}\n\n"
+            f"[bold]Come usare:[/bold]\n"
+            f"Passa `docgen_instructions.md` come prompt iniziale all'agente.\n"
+            f"L'agente leggerà i file `docgen_context_*.md` per ogni microservizio.",
+            border_style="green",
+        ))
+    else:
+        # ── Export progetto singolo (come prima) ─────────────────────
+        # 1. docgen_context.md
+        context_md = _generate_context_md(scan_result, analysis, config, is_hybrid, module_plans)
+        context_path = out_path / "docgen_context.md"
+        context_path.write_text(context_md, encoding="utf-8")
+        console.print(f"  [green]✓[/green] {context_path.name} ({len(context_md):,} caratteri)")
+
+        # 2. docgen_files.json
+        files_data = _generate_files_json(scan_result, analysis, config, is_hybrid)
+        json_path = out_path / "docgen_files.json"
+        json_path.write_text(
+            json.dumps(files_data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        console.print(f"  [green]✓[/green] {json_path.name} ({len(files_data['files'])} file)")
+
+        # 3. docgen_index.md
+        index_md = _generate_index_md(config, [], is_hybrid=False)
+        index_path = out_path / "docgen_index.md"
+        index_path.write_text(index_md, encoding="utf-8")
+        console.print(f"  [green]✓[/green] {index_path.name}")
+
+        console.print(Panel(
+            f"[bold green]Agent export completato![/bold green]\n\n"
+            f"File generati:\n"
+            f"  • [bold]{context_path.name}[/bold] — contesto strutturato + istruzioni + template\n"
+            f"  • [bold]{json_path.name}[/bold] — dati machine-readable\n"
+            f"  • [bold]{index_path.name}[/bold] — indice\n\n"
+            f"Documenti da generare: 2 documenti\n"
+            f"Output in: {config.output_dir}\n\n"
+            f"[bold]Come usare:[/bold]\n"
+            f"Passa `docgen_context.md` come prompt all'agente (Copilot, Kilo Code, Claude Code).\n"
+            f"L'agente leggerà i file dal workspace e genererà la documentazione.",
+            border_style="green",
+        ))
 
 
 def build_config(args: argparse.Namespace) -> DocGenConfig:
@@ -959,8 +1206,8 @@ def build_config(args: argparse.Namespace) -> DocGenConfig:
         dry_run=args.dry_run,
         max_tokens=args.max_tokens,
         chunk_budget=args.chunk_budget,
-        export_prompts=args.export_prompts,
-        llm_bridge=args.llm_bridge,
+        export_prompts=False,
+        llm_bridge=False,
         agent_export=args.agent_export,
     )
 
@@ -1011,16 +1258,6 @@ def main() -> None:
         type=int,
         default=80_000,
         help="Budget token per chunk (default: 80000)",
-    )
-    parser.add_argument(
-        "--export-prompts",
-        action="store_true",
-        help="Esporta i prompt pronti da usare con altri LLM (Kilo Code, ChatGPT, ecc.)",
-    )
-    parser.add_argument(
-        "--llm-bridge",
-        action="store_true",
-        help="Modalità bridge: scambia prompt/risposta via file per integrazione con Kilo Code o altri agenti",
     )
     parser.add_argument(
         "--agent-export",
@@ -1098,59 +1335,16 @@ def main() -> None:
         )
         return
 
-    # ── Export prompts: genera i file prompt e stop ──────────────────────
-    if config.export_prompts:
-        console.print(
-            f"\n[bold yellow]Step 4/4[/bold yellow] — Esportazione prompt\n"
-        )
-
-        if is_hybrid_candidate and module_plans:
-            exported = _export_prompts_hybrid(module_plans, analysis, config)
-        else:
-            exported = _export_prompts_unified(chunk_plan, analysis, config)
-
-        prompts_dir = Path(config.output_dir) / "prompts"
-        console.print(Panel(
-            f"[bold green]Prompt esportati![/bold green]\n"
-            f"File generati: {len(exported)}\n"
-            f"Directory: {prompts_dir}\n\n"
-            "[bold]Come usare i prompt:[/bold]\n"
-            "1. Apri 00_SYSTEM_PROMPT.md e incollalo come system prompt\n"
-            "2. Invia i prompt 01_ANALISI_CHUNK_*.md uno alla volta\n"
-            "3. Raccogli le risposte e incollale nei prompt 02/03\n"
-            "4. Per l'architettura: genera prima i riepiloghi (04_*)",
-            border_style="green",
-        ))
-        return
-
     # ── Step 4: Generazione documenti ────────────────────────────────────
     call_fn = None  # Default: usa Claude API direttamente
 
-    if config.llm_bridge:
-        # Modalità bridge: niente API key necessaria
-        from .generator import _call_bridge
-        call_fn = _call_bridge
-
-        bridge_dir = Path(config.output_dir) / ".bridge"
-        console.print(Panel(
-            "[bold cyan]Modalità LLM Bridge attiva[/bold cyan]\n\n"
-            f"Directory bridge: {bridge_dir}\n\n"
-            "Lo script scriverà i prompt in file numerati e attenderà le risposte.\n"
-            "Un agente esterno (Kilo Code, ecc.) deve:\n"
-            "1. Leggere il file system_prompt.md come contesto di sistema\n"
-            "2. Quando compare READY, leggere prompt_NNN.md\n"
-            "3. Processare il prompt col proprio LLM\n"
-            "4. Salvare la risposta in response_NNN.md",
-            border_style="cyan",
-        ))
-    else:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            console.print(
-                "[red]Errore: ANTHROPIC_API_KEY non configurata.[/red]\n"
-                "Imposta la variabile d'ambiente: export ANTHROPIC_API_KEY=sk-..."
-            )
-            sys.exit(1)
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        console.print(
+            "[red]Errore: ANTHROPIC_API_KEY non configurata.[/red]\n"
+            "Imposta la variabile d'ambiente: export ANTHROPIC_API_KEY=sk-..."
+        )
+        sys.exit(1)
 
     # Scelta modalità per progetti grandi
     generation_mode = "unified"
@@ -1160,8 +1354,7 @@ def main() -> None:
             console.print("[yellow]Generazione annullata.[/yellow]")
             return
 
-    label = "con LLM Bridge" if config.llm_bridge else "con Claude"
-    console.print(f"\n[bold yellow]Step 4/4[/bold yellow] — Generazione documenti {label}\n")
+    console.print(f"\n[bold yellow]Step 4/4[/bold yellow] — Generazione documenti con Claude\n")
 
     from .generator import generate_documents, generate_documents_hybrid
     from .renderer import render_documents, render_documents_hybrid

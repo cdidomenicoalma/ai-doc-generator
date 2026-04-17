@@ -2,7 +2,7 @@
 
 ## 1. Cos'è DocGen
 
-DocGen è uno strumento da riga di comando (CLI) che analizza automaticamente il codice sorgente di un progetto software e genera documentazione professionale.
+DocGen è uno strumento da riga di comando (CLI) che analizza automaticamente il codice sorgente di un progetto software e genera documentazione professionale conforme agli standard della PA italiana.
 
 ### Cosa produce
 
@@ -17,7 +17,7 @@ I documenti vengono generati in formato **Markdown** e/o **DOCX** (Word).
 | Linguaggio | Framework rilevati |
 |---|---|
 | Java | Spring Boot, Spring Security, JPA/Hibernate |
-| C# | ASP.NET Core, Entity Framework Core |
+| C# | ASP.NET Core, Entity Framework Core, Razor |
 | TypeScript/JS | Angular, NestJS, Express.js |
 | Python | FastAPI, Flask, Django |
 | Altro | Go, Rust, Ruby, PHP (estrazione dipendenze) |
@@ -25,9 +25,9 @@ I documenti vengono generati in formato **Markdown** e/o **DOCX** (Word).
 ### Come funziona in breve
 
 1. **Scansione** — legge tutti i file sorgente del progetto
-2. **Classificazione** — classifica ogni file per categoria (controller, service, entity, business_critical, ecc.) e priorità (alta, media, bassa)
+2. **Classificazione** — classifica ogni file per categoria (controller, service, entity, business_critical, ecc.) e urgenza (🔴 obbligatorio, 🟡 importante, ⚪ supporto)
 3. **Analisi statica** — estrae endpoint REST, entità/modelli, route frontend, dipendenze, configurazione DB
-4. **Generazione** — usa un LLM (Large Language Model) per produrre i documenti a partire dal codice e dall'analisi
+4. **Generazione** — produce i documenti tramite un LLM (API Claude) o un agente AI (Copilot, Kilo Code, Claude Code)
 
 ---
 
@@ -90,13 +90,13 @@ Se mostra l'help con le opzioni disponibili, l'installazione è riuscita.
 
 ## 4. Modalità di utilizzo
 
-DocGen offre **5 modalità** di funzionamento, dalla più semplice alla più avanzata.
+DocGen offre **3 modalità** di funzionamento.
 
 ---
 
 ### 4.1 Modalità Dry Run (`--dry-run`)
 
-**Scopo**: analizza il progetto SENZA generare documenti. Utile per verificare che la scansione e la classificazione funzionino correttamente prima di investire token/costi.
+**Scopo**: analizza il progetto SENZA generare documenti. Utile per verificare che la scansione e la classificazione funzionino correttamente prima di procedere.
 
 **Comando:**
 
@@ -128,19 +128,25 @@ python3 -m docgen /percorso/al/progetto --dry-run -n "Nome Progetto"
 python3 -m docgen /percorso/al/progetto --agent-export -n "Nome Progetto"
 ```
 
-**Cosa produce** (nella cartella `<progetto>/DocGen/`):
-- `docgen_context.md` — contesto completo: struttura progetto, analisi statica, file classificati per priorità, istruzioni operative per l'agente, template dei documenti da generare
+**Cosa produce (progetto singolo)** — nella cartella `<progetto>/DocGen/`:
+- `docgen_context.md` — contesto completo: struttura progetto, analisi statica, file classificati per urgenza, istruzioni operative per l'agente, template dei documenti
 - `docgen_files.json` — stessi dati in formato JSON machine-readable
+- `docgen_index.md` — indice dei file generati
+
+**Cosa produce (progetto multi-microservizio)** — nella cartella `<progetto>/DocGen/`:
+- `docgen_instructions.md` — istruzioni generali + template dei documenti
+- `docgen_context_<modulo>.md` — un file di contesto per ogni microservizio, con i file classificati per urgenza (🔴/🟡/⚪)
+- `docgen_files.json` — dati machine-readable
+- `docgen_index.md` — indice dei file generati
 
 **Costo**: zero (nessuna chiamata API — è l'agente che fa il lavoro).
 
-**Come usarla (passo passo):**
+**Come usarla (passo passo) — progetto singolo:**
 
-1. Apri il terminale nella root del progetto da analizzare:
+1. Lancia il comando:
 
    ```bash
-   cd /percorso/al/progetto
-   python3 -m docgen . --agent-export -n "Nome Progetto"
+   python3 -m docgen /percorso/al/progetto --agent-export -n "Nome Progetto"
    ```
 
 2. Apri il progetto in VS Code (se non lo hai già aperto)
@@ -151,67 +157,37 @@ python3 -m docgen /percorso/al/progetto --agent-export -n "Nome Progetto"
 
 4. L'agente leggerà il contesto, poi leggerà i file sorgente dal workspace e genererà i documenti
 
-**Vantaggi rispetto alle altre modalità:**
+**Come usarla (passo passo) — progetto multi-microservizio:**
+
+1. Lancia il comando (DocGen rileva automaticamente i microservizi):
+
+   ```bash
+   python3 -m docgen /percorso/al/progetto --agent-export -n "Nome Progetto"
+   ```
+
+2. Apri il progetto in VS Code
+
+3. Apri la chat dell'agente e scrivi:
+
+   > Leggi il file `DocGen/docgen_instructions.md` e segui le istruzioni. Per ogni microservizio, leggi il relativo `docgen_context_<nome>.md`. Salva i documenti nella cartella `DocGen/`.
+
+4. L'agente procederà un microservizio alla volta, poi genererà i documenti d'insieme (architettura, funzionale completa, tecnica completa)
+
+**Classificazione dei file per urgenza:**
+
+I file nei contesti sono raggruppati per urgenza visiva:
+- 🔴 **Obbligatori** — controller, service, business_critical → leggere SEMPRE
+- 🟡 **Importanti** — entity, repository, config, DTO → leggere se servono dettagli
+- ⚪ **Supporto** — test, utility, stili → leggere solo se serve contesto aggiuntivo
+
+**Vantaggi rispetto alla modalità API diretta:**
 - L'agente legge i file dal filesystem → nessun copia-incolla di codice nei prompt
 - Risparmio del 70-80% di token rispetto alla modalità API diretta
 - L'agente ha accesso all'intero progetto, non solo ai chunk selezionati
 
 ---
 
-### 4.3 Modalità Export Prompt (`--export-prompts`)
-
-**Scopo**: genera i prompt pronti da copiare-incollare manualmente in qualsiasi LLM (ChatGPT, Claude web, Gemini, ecc.).
-
-**Comando:**
-
-```bash
-python3 -m docgen /percorso/al/progetto --export-prompts -n "Nome Progetto"
-```
-
-**Cosa produce** (nella cartella `<progetto>/DocGen/prompts/`):
-- `00_SYSTEM_PROMPT.md` — prompt di sistema
-- `01_ANALISI_CHUNK_01_<modulo>.md`, `01_ANALISI_CHUNK_02_<modulo>.md`, ... — un prompt per ogni chunk di codice
-- `02_SPECIFICA_FUNZIONALE.md` — prompt per generare il documento funzionale
-- `03_SPECIFICA_TECNICA.md` — prompt per generare il documento tecnico
-
-Per progetti multi-microservizio, vengono create sottocartelle per ogni servizio + un prompt `ARCHITETTURA_SISTEMA.md`.
-
-**Costo**: zero (nessuna chiamata API).
-
-**Come usarla:**
-
-1. Lancia il comando
-2. Apri un LLM a scelta (ChatGPT, Claude, ecc.)
-3. Incolla `00_SYSTEM_PROMPT.md` come system prompt
-4. Invia i prompt `01_ANALISI_CHUNK_*.md` uno alla volta e raccogli le risposte
-5. Incolla le risposte nei placeholder dei prompt `02_SPECIFICA_FUNZIONALE.md` e `03_SPECIFICA_TECNICA.md`
-
----
-
-### 4.4 Modalità LLM Bridge (`--llm-bridge`)
-
-**Scopo**: scambio automatizzato prompt/risposta via filesystem. Lo script scrive i prompt come file, un agente esterno (Kilo Code) li legge, processa col suo LLM e scrive le risposte.
-
-**Comando:**
-
-```bash
-python3 -m docgen /percorso/al/progetto --llm-bridge -n "Nome Progetto"
-```
-
-**Costo**: dipende dall'agente usato (Kilo Code usa i suoi token/crediti).
-
-**Come funziona:**
-1. Lo script crea una cartella `.bridge/` dentro la directory di output
-2. Scrive un prompt (`prompt_001.md`) e un flag (`READY`)
-3. L'agente esterno rileva il flag, legge il prompt, genera la risposta e la salva (`response_001.md`)
-4. Lo script rileva la risposta, procede al prompt successivo
-5. Alla fine genera i documenti finali
-
-> **Nota**: questa modalità richiede che l'agente esterno sia configurato per monitorare la cartella `.bridge/`.
-
----
-
-### 4.5 Modalità API Diretta (default)
+### 4.3 Modalità API Diretta (default)
 
 **Scopo**: genera i documenti chiamando direttamente l'API di Claude (Anthropic). Completamente automatico, ma richiede una API key e comporta costi.
 
@@ -248,9 +224,7 @@ python3 -m docgen /percorso/al/progetto -n "Nome Progetto"
 | `-m`, `--model` | `claude-sonnet-4-20250514` | Modello Claude (solo per modalità API) |
 | `-d`, `--dry-run` | — | Solo analisi, nessuna generazione |
 | `--agent-export` | — | Esporta contesto per agenti AI |
-| `--export-prompts` | — | Esporta prompt come file Markdown |
-| `--llm-bridge` | — | Modalità bridge con agente esterno |
-| `--chunk-budget` | 120000 | Token massimi per chunk |
+| `--chunk-budget` | 80000 | Token massimi per chunk |
 | `--max-tokens` | 200000 | Token massimi contesto modello |
 
 ---
@@ -263,15 +237,30 @@ python3 -m docgen /percorso/al/progetto -n "Nome Progetto"
 <progetto>/DocGen/
 ├── struttura_progetto.txt
 ├── analisi_statica.md
-├── docgen_context.md          ← (solo con --agent-export)
+├── docgen_context.md           ← (solo con --agent-export)
 ├── docgen_files.json           ← (solo con --agent-export)
-├── specifica_funzionale.md
+├── docgen_index.md             ← (solo con --agent-export)
+├── specifica_funzionale.md     ← (solo con API diretta)
 ├── specifica_funzionale.docx
 ├── specifica_tecnica.md
 └── specifica_tecnica.docx
 ```
 
-### Progetto multi-microservizio
+### Progetto multi-microservizio — Agent Export
+
+```
+<progetto>/DocGen/
+├── struttura_progetto.txt
+├── analisi_statica.md
+├── docgen_instructions.md
+├── docgen_context_<servizio-1>.md
+├── docgen_context_<servizio-2>.md
+├── ...
+├── docgen_files.json
+└── docgen_index.md
+```
+
+### Progetto multi-microservizio — API Diretta
 
 ```
 <progetto>/DocGen/
@@ -304,7 +293,7 @@ python3 -m docgen /percorso/al/progetto -n "Nome Progetto"
    ```
 
 3. **Generazione** — apri VS Code sul progetto e dai all'agente:
-   > Leggi `DocGen/docgen_context.md` e segui le istruzioni per generare la documentazione.
+   > Leggi `DocGen/docgen_context.md` (o `DocGen/docgen_instructions.md` per multi-servizio) e segui le istruzioni per generare la documentazione.
 
 4. **Revisione** — controlla i documenti generati e correggi eventuali imprecisioni.
 
@@ -323,12 +312,13 @@ Serve solo per la modalità API diretta (senza flag). Imposta:
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
+Per la modalità `--agent-export` e `--dry-run` NON serve alcuna API key.
 
 ### "Nessun file sorgente trovato"
-Il progetto non contiene file con estensioni supportate, oppure tutti i file sono in directory ignorate (node_modules, target, .git, ecc.).
+Il progetto non contiene file con estensioni supportate, oppure tutti i file sono in directory ignorate (node_modules, target, bin, obj, .git, ecc.).
 
 ### Il progetto è troppo grande
 Riduci il `--chunk-budget` per creare più chunk più piccoli, oppure usa `--agent-export` che non ha limiti di token.
 
 ### L'agente non legge tutti i file
-Con `--agent-export`, il file `docgen_context.md` elenca i file per priorità. Chiedi esplicitamente all'agente di leggere i file con priorità ALTA e business_critical.
+Con `--agent-export`, i file sono raggruppati per urgenza (🔴/🟡/⚪). Chiedi esplicitamente all'agente di leggere i file 🔴 (obbligatori) e business_critical.

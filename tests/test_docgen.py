@@ -35,7 +35,7 @@ class TestConfig(unittest.TestCase):
     def test_default_values(self):
         config = DocGenConfig()
         self.assertEqual(config.chunk_budget, 120_000)
-        self.assertEqual(config.max_file_chars, 15_000)
+        self.assertEqual(config.max_file_chars, 40_000)
         self.assertEqual(config.max_file_bytes, 500_000)
         self.assertFalse(config.dry_run)
         self.assertEqual(config.output_format, "all")
@@ -250,7 +250,7 @@ class TestScanProject(unittest.TestCase):
     def test_scan_truncates_long_files(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             long_file = Path(tmpdir) / "Long.java"
-            long_file.write_text("A" * 20_000)
+            long_file.write_text("A" * 50_000)  # > 40K default
             config = DocGenConfig(project_path=tmpdir)
             result = scan_project(config)
             self.assertEqual(result.total_files, 1)
@@ -1981,7 +1981,7 @@ class TestAgentExport(unittest.TestCase):
         self.assertIn("Test PA Project", md)
         self.assertIn("Struttura directory", md)
         self.assertIn("Statistiche", md)
-        self.assertIn("File classificati per categoria", md)
+        self.assertIn("File classificati per urgenza", md)
         self.assertIn("Istruzioni per la generazione", md)
         self.assertIn("Template: Specifica Funzionale", md)
         self.assertIn("Template: Specifica Tecnica", md)
@@ -2041,6 +2041,7 @@ class TestAgentExport(unittest.TestCase):
         out_dir = TEST_PROJECT / "DocGen"
         self.assertTrue((out_dir / "docgen_context.md").exists())
         self.assertTrue((out_dir / "docgen_files.json").exists())
+        self.assertTrue((out_dir / "docgen_index.md").exists())
 
         # Verifica JSON è valido
         with open(out_dir / "docgen_files.json") as f:

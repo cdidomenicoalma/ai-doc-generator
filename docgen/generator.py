@@ -283,7 +283,7 @@ def generate_documents(
     )
 
     functional_doc, in_tok, out_tok = call_fn(
-        client, config, func_prompt, max_output_tokens=8192,
+        client, config, func_prompt, max_output_tokens=16384,
     )
     total_input_tokens += in_tok
     total_output_tokens += out_tok
@@ -298,7 +298,7 @@ def generate_documents(
     )
 
     technical_doc, in_tok, out_tok = call_fn(
-        client, config, tech_prompt, max_output_tokens=8192,
+        client, config, tech_prompt, max_output_tokens=16384,
     )
     total_input_tokens += in_tok
     total_output_tokens += out_tok
@@ -358,6 +358,9 @@ def generate_documents_hybrid(
     current_call = 0
 
     for mod_idx, (module_name, chunk_plan) in enumerate(sorted(module_chunk_plans.items()), 1):
+        # Analisi statica filtrata per questo modulo (evita rumore cross-servizio)
+        module_static_text = analysis.summary_text_for_module(module_name)
+
         console.print(
             f"\n[bold yellow]━━━ Microservizio {mod_idx}/{total_modules}: "
             f"{module_name} ({chunk_plan.total_chunks} chunk) ━━━[/bold yellow]\n"
@@ -382,7 +385,7 @@ def generate_documents_hybrid(
 
                 prompt = ANALYZE_CHUNK.format(
                     project_name=config.project_name,
-                    static_analysis=static_analysis_text,
+                    static_analysis=module_static_text,
                     chunk_content=chunk.to_text(),
                 )
 
@@ -414,12 +417,12 @@ def generate_documents_hybrid(
 
         func_prompt = FUNCTIONAL_DOC.format(
             project_name=f"{config.project_name} — {module_name}",
-            static_analysis=static_analysis_text,
+            static_analysis=module_static_text,
             module_analyses=all_analyses_truncated,
         )
 
         functional_doc, in_tok, out_tok = call_fn(
-            client, config, func_prompt, max_output_tokens=8192,
+            client, config, func_prompt, max_output_tokens=16384,
         )
         total_input_tokens += in_tok
         total_output_tokens += out_tok
@@ -430,12 +433,12 @@ def generate_documents_hybrid(
 
         tech_prompt = TECHNICAL_DOC.format(
             project_name=f"{config.project_name} — {module_name}",
-            static_analysis=static_analysis_text,
+            static_analysis=module_static_text,
             module_analyses=all_analyses_truncated,
         )
 
         technical_doc, in_tok, out_tok = call_fn(
-            client, config, tech_prompt, max_output_tokens=8192,
+            client, config, tech_prompt, max_output_tokens=16384,
         )
         total_input_tokens += in_tok
         total_output_tokens += out_tok
@@ -477,7 +480,7 @@ def generate_documents_hybrid(
     )
 
     architecture_doc, in_tok, out_tok = call_fn(
-        client, config, arch_prompt, max_output_tokens=8192,
+        client, config, arch_prompt, max_output_tokens=16384,
     )
     total_input_tokens += in_tok
     total_output_tokens += out_tok

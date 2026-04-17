@@ -127,10 +127,10 @@ Non produrre casi d'uso triviali (es. "l'utente apre la pagina"). Concentrati su
 ## 5. Modello dati funzionale
 Descrivi le entità dal punto di vista funzionale (non tecnico), le relazioni tra esse, e includi un diagramma Mermaid erDiagram.
 
-## 5. Interfaccia utente
+## 6. Interfaccia utente
 Descrivi le schermate principali e i flussi di navigazione. Includi un diagramma Mermaid del flusso di navigazione se possibile.
 
-## 6. Integrazioni e interfacce esterne
+## 7. Integrazioni e interfacce esterne
 Descrivi le integrazioni con sistemi esterni, API consumate, ecc.
 
 ## 8. Regole di business
