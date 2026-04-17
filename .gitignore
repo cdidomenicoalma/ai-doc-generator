@@ -5,3 +5,4 @@ docgen_output
 docgen.egg-info
 .DS_Store
 release
+docgen/__pycache__

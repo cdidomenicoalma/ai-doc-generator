@@ -80,7 +80,9 @@ Produce (nella cartella `<progetto>/DocGen/`):
 1. Lancia il comando
 2. Apri VS Code sul progetto
 3. Passa `docgen_context.md` (o `docgen_instructions.md`) all'agente
-4. L'agente legge i file sorgente e genera la documentazione
+4. L'agente legge i file sorgente e genera la documentazione in `.md`
+5. Converti in Word con template aziendale: `python3 -m docgen --render DocGen/*.md`
+6. Pulisci i file temporanei: `python3 -m docgen --cleanup DocGen/`
 
 I file sono raggruppati per urgenza: 🔴 obbligatori, 🟡 importanti, ⚪ supporto.
 
@@ -94,6 +96,43 @@ python3 -m docgen /percorso/progetto -n "Nome Progetto"
 ```
 
 Per progetti grandi (3+ microservizi), DocGen chiede se generare documentazione per-servizio o unificata.
+
+### 3.4 — Conversione DOCX con template aziendale
+
+Converte i file `.md` generati dall'agente in `.docx` con formattazione aziendale (copertina, intestazione, piè di pagina, stili Word).
+
+```bash
+python3 -m docgen --render DocGen/*.md --meta PROGETTO="Nome Progetto" CLIENTE="Nome Cliente"
+```
+
+Il template aziendale include:
+- **Copertina** con tabella titolo e metadati (cliente, progetto, data, versione, redatto da, ecc.)
+- **Header** su ogni pagina (ente, progetto, tipo documento, versione, data)
+- **Footer** su ogni pagina (nome documento + numerazione pagine)
+- **Stili** Heading 1/2/3 e Normal coerenti con il format aziendale
+
+I metadati della copertina si personalizzano con `--meta`:
+
+| Chiave | Default | Esempio |
+|--------|---------|---------|
+| `INTESTAZIONE_ENTE` | XXXX | `"MINISTERO DELLA DIFESA"` |
+| `CLIENTE` | XXXX | `"Nome Cliente"` |
+| `PROGETTO` | XXXX | `"Nome Progetto"` |
+| `REDATTO_DA` | DocGen (generazione automatica) | `"Mario Rossi"` |
+| `VERSIONE` | 1.0 | `"2.0"` |
+| `STATO` | Bozza | `"Approvato"` |
+
+Per usare un template diverso: `--template /percorso/template.docx`
+
+### 3.5 — Pulizia file temporanei
+
+Rimuove i file di contesto dell'agent-export, lasciando solo i documenti finali `.md` e `.docx`.
+
+```bash
+python3 -m docgen --cleanup DocGen/
+```
+
+File rimossi: `analisi_statica.md`, `struttura_progetto.txt`, `docgen_context*.md`, `docgen_files.json`, `docgen_index.md`, `docgen_instructions.md`.
 
 ---
 
@@ -169,6 +208,10 @@ python3 -m docgen ./test-project -n "Gestione Utenti PA"
 | `-f`, `--format` | `all` | Formato: `all`, `md`, `docx` |
 | `-d`, `--dry-run` | — | Solo anteprima, nessuna API |
 | `--agent-export` | — | Esporta contesto per agenti AI |
+| `--render FILE ...` | — | Converte `.md` in `.docx` con template aziendale |
+| `--template PATH` | `templates/template_aziendale.docx` | Template `.docx` personalizzato |
+| `--cleanup [DIR]` | — | Rimuove file temporanei dell'agent-export |
+| `--meta KEY=VALUE ...` | — | Metadati copertina (es. `CLIENTE="Acme"`) |
 | `-m`, `--model` | `claude-sonnet-4-20250514` | Modello Claude |
 | `--chunk-budget` | 80000 | Token per chunk |
 | `--max-tokens` | 200000 | Limite contesto modello |
@@ -223,14 +266,19 @@ La stima viene mostrata nel dry-run e durante la generazione.
 
 ```
 docgen/
-├── main.py          # CLI e orchestrazione
-├── config.py        # Configurazione centralizzata
-├── scanner.py       # Scansione filesystem e classificazione file
-├── analyzer.py      # Estrazione statica (endpoint, entità, route, dipendenze)
-├── chunker.py       # Raggruppamento file per modulo con budget token
-├── generator.py     # Chiamate Claude API con retry
-├── prompts.py       # Template prompt in italiano
-└── renderer.py      # Conversione Markdown → DOCX
+├── main.py               # CLI e orchestrazione
+├── config.py             # Configurazione centralizzata
+├── scanner.py            # Scansione filesystem e classificazione file
+├── analyzer.py           # Estrazione statica (endpoint, entità, route, dipendenze)
+├── chunker.py            # Raggruppamento file per modulo con budget token
+├── generator.py          # Chiamate Claude API con retry
+├── prompts.py            # Template prompt in italiano
+├── renderer.py           # Conversione Markdown → DOCX (stile interno)
+└── template_renderer.py  # Conversione Markdown → DOCX con template aziendale
+
+templates/
+├── template_aziendale.docx  # Template Word con placeholder
+└── build_template.py        # Script per ricostruire il template
 
 tests/
 └── test_docgen.py   # 181 test automatici

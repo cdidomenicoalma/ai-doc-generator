@@ -31,6 +31,19 @@ from .generator import smart_truncate
 
 console = Console()
 
+# File temporanei dell'agent-export da rimuovere con --cleanup
+AGENT_EXPORT_TEMP_FILES = [
+    "analisi_statica.md",
+    "struttura_progetto.txt",
+    "docgen_files.json",
+    "docgen_index.md",
+    "docgen_instructions.md",
+]
+AGENT_EXPORT_TEMP_PATTERNS = [
+    "docgen_context_*.md",
+    "docgen_context.md",
+]
+
 
 def _print_banner() -> None:
     console.print(Panel.fit(
@@ -828,6 +841,34 @@ def _generate_instructions_md(
     lines.append(f"## Output\n")
     lines.append(f"Salva tutti i documenti generati in: `{config.output_dir}`\n")
 
+    lines.append("---\n")
+    lines.append("## Post-generazione: conversione DOCX e pulizia\n")
+    lines.append(
+        "Dopo aver generato TUTTI i documenti .md, esegui questi comandi nel terminale:\n\n"
+        "### 1. Conversione in formato Word (.docx) con template aziendale\n\n"
+        "```bash\n"
+    )
+    lines.append(f"python -m docgen --render {config.output_dir}/*.md"
+                  f" --meta PROGETTO=\"{config.project_name}\"\n")
+    lines.append(
+        "```\n\n"
+        "Puoi personalizzare i metadati della copertina aggiungendo parametri `--meta`:\n"
+        "- `CLIENTE=\"Nome Cliente\"`\n"
+        "- `PROGETTO=\"Nome Progetto\"`\n"
+        "- `INTESTAZIONE_ENTE=\"Nome Ente\"`\n"
+        "- `REDATTO_DA=\"Nome Autore\"`\n"
+        "- `VERSIONE=\"1.0\"`\n\n"
+        "### 2. Pulizia file temporanei\n\n"
+        "```bash\n"
+    )
+    lines.append(f"python -m docgen --cleanup {config.output_dir}\n")
+    lines.append(
+        "```\n\n"
+        "Questo rimuove i file di contesto (analisi_statica.md, docgen_context_*.md, "
+        "docgen_files.json, docgen_index.md, docgen_instructions.md, struttura_progetto.txt) "
+        "lasciando solo i documenti finali .md e .docx.\n"
+    )
+
     return "\n".join(lines)
 
 
@@ -984,6 +1025,34 @@ def _generate_context_md(
     lines.append("---\n")
     lines.append(f"## Output\n")
     lines.append(f"Salva tutti i documenti generati in: `{config.output_dir}`\n")
+
+    lines.append("---\n")
+    lines.append("## Post-generazione: conversione DOCX e pulizia\n")
+    lines.append(
+        "Dopo aver generato TUTTI i documenti .md, esegui questi comandi nel terminale:\n\n"
+        "### 1. Conversione in formato Word (.docx) con template aziendale\n\n"
+        "```bash\n"
+    )
+    lines.append(f"python -m docgen --render {config.output_dir}/*.md"
+                  f" --meta PROGETTO=\"{config.project_name}\"\n")
+    lines.append(
+        "```\n\n"
+        "Puoi personalizzare i metadati della copertina aggiungendo parametri `--meta`:\n"
+        "- `CLIENTE=\"Nome Cliente\"`\n"
+        "- `PROGETTO=\"Nome Progetto\"`\n"
+        "- `INTESTAZIONE_ENTE=\"Nome Ente\"`\n"
+        "- `REDATTO_DA=\"Nome Autore\"`\n"
+        "- `VERSIONE=\"1.0\"`\n\n"
+        "### 2. Pulizia file temporanei\n\n"
+        "```bash\n"
+    )
+    lines.append(f"python -m docgen --cleanup {config.output_dir}\n")
+    lines.append(
+        "```\n\n"
+        "Questo rimuove i file di contesto (analisi_statica.md, docgen_context_*.md, "
+        "docgen_files.json, docgen_index.md, docgen_instructions.md, struttura_progetto.txt) "
+        "lasciando solo i documenti finali .md e .docx.\n"
+    )
 
     return "\n".join(lines)
 
@@ -1181,8 +1250,129 @@ def _agent_export(
         ))
 
 
+def _parse_meta_args(meta_args: list[str] | None) -> dict[str, str]:
+    """Parsa gli argomenti --meta KEY=VALUE in un dizionario."""
+    if not meta_args:
+        return {}
+    result: dict[str, str] = {}
+    for item in meta_args:
+        if "=" in item:
+            key, value = item.split("=", 1)
+            result[key.strip()] = value.strip()
+    return result
+
+
+def _handle_render(args: argparse.Namespace) -> None:
+    """Gestisce la modalità --render: converte .md → .docx con template aziendale."""
+    from .template_renderer import render_md_to_docx
+
+    _print_banner()
+    console.print("\n[bold yellow]Rendering .md → .docx con template aziendale[/bold yellow]\n")
+
+    metadata = _parse_meta_args(args.meta)
+    # Se è specificato --name, usalo come PROGETTO
+    if hasattr(args, "name") and args.name:
+        metadata.setdefault("PROGETTO", args.name)
+
+    template_path = args.template
+    generated: list[str] = []
+
+    for md_file in args.render:
+        md_path = Path(md_file)
+
+        # Supporta glob pattern
+        if "*" in str(md_path):
+            parent = md_path.parent if md_path.parent != md_path else Path(".")
+            matches = list(parent.glob(md_path.name))
+            if not matches:
+                console.print(f"  [yellow]⚠[/yellow] Nessun match per: {md_file}")
+            for m in matches:
+                if m.suffix == ".md":
+                    out_path = m.with_suffix(".docx")
+                    try:
+                        result = render_md_to_docx(str(m), str(out_path), template_path, metadata)
+                        generated.append(result)
+                        console.print(f"  [green]✓[/green] {out_path.name}")
+                    except Exception as e:
+                        console.print(f"  [red]✗[/red] {m.name}: {e}")
+        else:
+            if not md_path.exists():
+                console.print(f"  [red]✗[/red] File non trovato: {md_file}")
+                continue
+            out_path = md_path.with_suffix(".docx")
+            try:
+                result = render_md_to_docx(str(md_path), str(out_path), template_path, metadata)
+                generated.append(result)
+                console.print(f"  [green]✓[/green] {out_path.name}")
+            except Exception as e:
+                console.print(f"  [red]✗[/red] {md_path.name}: {e}")
+
+    if generated:
+        console.print(Panel(
+            f"[bold green]Rendering completato![/bold green]\n"
+            f"File .docx generati: {len(generated)}",
+            border_style="green",
+        ))
+    else:
+        console.print("[red]Nessun file convertito.[/red]")
+
+
+def _handle_cleanup(args: argparse.Namespace) -> None:
+    """Gestisce la modalità --cleanup: rimuove i file temporanei dell'agent-export."""
+    import glob as glob_module
+
+    _print_banner()
+
+    # Determina la directory
+    if args.cleanup == "AUTO":
+        # Usa output_dir dal project_path se disponibile
+        if hasattr(args, "project_path") and args.project_path:
+            cleanup_dir = Path(os.path.abspath(args.project_path)) / "DocGen"
+        else:
+            console.print("[red]Errore: specifica la directory di output per --cleanup[/red]")
+            sys.exit(1)
+    else:
+        cleanup_dir = Path(os.path.abspath(args.cleanup))
+
+    if not cleanup_dir.exists():
+        console.print(f"[red]Directory non trovata: {cleanup_dir}[/red]")
+        sys.exit(1)
+
+    console.print(f"\n[bold yellow]Pulizia file temporanei[/bold yellow] in: {cleanup_dir}\n")
+
+    removed: list[str] = []
+
+    # File con nome esatto
+    for fname in AGENT_EXPORT_TEMP_FILES:
+        fpath = cleanup_dir / fname
+        if fpath.exists():
+            fpath.unlink()
+            removed.append(fname)
+            console.print(f"  [red]✗[/red] {fname}")
+
+    # Pattern glob
+    for pattern in AGENT_EXPORT_TEMP_PATTERNS:
+        for match in cleanup_dir.glob(pattern):
+            match.unlink()
+            removed.append(match.name)
+            console.print(f"  [red]✗[/red] {match.name}")
+
+    if removed:
+        console.print(Panel(
+            f"[bold green]Pulizia completata![/bold green]\n"
+            f"File rimossi: {len(removed)}",
+            border_style="green",
+        ))
+    else:
+        console.print("[yellow]Nessun file temporaneo trovato.[/yellow]")
+
+
 def build_config(args: argparse.Namespace) -> DocGenConfig:
     """Costruisce la configurazione dal namespace argparse."""
+    if not args.project_path:
+        console.print("[red]Errore: specifica il path del progetto da analizzare[/red]")
+        sys.exit(1)
+
     project_path = os.path.abspath(args.project_path)
 
     if not os.path.isdir(project_path):
@@ -1220,6 +1410,8 @@ def main() -> None:
     )
     parser.add_argument(
         "project_path",
+        nargs="?",
+        default=None,
         help="Path al progetto da analizzare",
     )
     parser.add_argument(
@@ -1264,8 +1456,43 @@ def main() -> None:
         action="store_true",
         help="Esporta contesto strutturato per agenti AI (Copilot, Kilo Code, Claude Code) — nessuna chiamata API",
     )
+    parser.add_argument(
+        "--render",
+        nargs="+",
+        metavar="MD_FILE",
+        help="Converte uno o più file .md in .docx usando il template aziendale",
+    )
+    parser.add_argument(
+        "--template",
+        default=None,
+        help="Path al template .docx aziendale (default: templates/template_aziendale.docx)",
+    )
+    parser.add_argument(
+        "--cleanup",
+        metavar="OUTPUT_DIR",
+        nargs="?",
+        const="AUTO",
+        help="Rimuove i file temporanei dell'agent-export dalla directory di output",
+    )
+    parser.add_argument(
+        "--meta",
+        nargs="*",
+        metavar="KEY=VALUE",
+        help="Metadati per i placeholder del template (es. --meta CLIENTE=Acme PROGETTO='Mio Progetto')",
+    )
 
     args = parser.parse_args()
+
+    # ── Modalità --render: converte .md → .docx e esce ───────────────
+    if args.render:
+        _handle_render(args)
+        return
+
+    # ── Modalità --cleanup: rimuove file temporanei e esce ───────────
+    if args.cleanup:
+        _handle_cleanup(args)
+        return
+
     config = build_config(args)
 
     _print_banner()

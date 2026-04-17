@@ -157,6 +157,18 @@ python3 -m docgen /percorso/al/progetto --agent-export -n "Nome Progetto"
 
 4. L'agente leggerà il contesto, poi leggerà i file sorgente dal workspace e genererà i documenti
 
+5. Converti i `.md` in `.docx` con template aziendale:
+
+   ```bash
+   python3 -m docgen --render DocGen/*.md --meta PROGETTO="Nome Progetto"
+   ```
+
+6. Rimuovi i file temporanei:
+
+   ```bash
+   python3 -m docgen --cleanup DocGen/
+   ```
+
 **Come usarla (passo passo) — progetto multi-microservizio:**
 
 1. Lancia il comando (DocGen rileva automaticamente i microservizi):
@@ -172,6 +184,18 @@ python3 -m docgen /percorso/al/progetto --agent-export -n "Nome Progetto"
    > Leggi il file `DocGen/docgen_instructions.md` e segui le istruzioni. Per ogni microservizio, leggi il relativo `docgen_context_<nome>.md`. Salva i documenti nella cartella `DocGen/`.
 
 4. L'agente procederà un microservizio alla volta, poi genererà i documenti d'insieme (architettura, funzionale completa, tecnica completa)
+
+5. Converti i `.md` in `.docx` con template aziendale:
+
+   ```bash
+   python3 -m docgen --render DocGen/*.md --meta PROGETTO="Nome Progetto" CLIENTE="Nome Cliente"
+   ```
+
+6. Rimuovi i file temporanei:
+
+   ```bash
+   python3 -m docgen --cleanup DocGen/
+   ```
 
 **Classificazione dei file per urgenza:**
 
@@ -213,6 +237,65 @@ python3 -m docgen /percorso/al/progetto -n "Nome Progetto"
 
 ---
 
+### 4.4 Conversione DOCX con template aziendale (`--render`)
+
+**Scopo**: converte i file `.md` generati dall'agente (o manualmente) in documenti Word (`.docx`) con formattazione aziendale: copertina, intestazione, piè di pagina, stili Word.
+
+**Comando:**
+
+```bash
+python3 -m docgen --render DocGen/*.md --meta PROGETTO="Nome Progetto" CLIENTE="Nome Cliente"
+```
+
+**Cosa fa:**
+- Apre il template aziendale (`templates/template_aziendale.docx`)
+- Sostituisce i placeholder della copertina con i metadati forniti tramite `--meta`
+- Parsa il Markdown e lo inserisce nel documento con gli stili Word del template
+- Genera un file `.docx` per ogni `.md` fornito
+
+**Metadati personalizzabili (`--meta`):**
+
+| Chiave | Default | Descrizione |
+|--------|---------|-------------|
+| `INTESTAZIONE_ENTE` | XXXX | Intestazione ente nella copertina e header |
+| `CLIENTE` | XXXX | Nome cliente |
+| `PROGETTO` | XXXX | Nome progetto |
+| `REDATTO_DA` | DocGen (generazione automatica) | Autore del documento |
+| `APPROVATO_DA` | XXXX | Approvatore |
+| `VERIFICATO_DA` | XXXX | Verificatore |
+| `VERSIONE` | 1.0 | Versione del documento |
+| `STATO` | Bozza | Stato del documento |
+
+I campi `NOME_DOCUMENTO`, `TIPO_DOCUMENTO` e `DATA` vengono compilati automaticamente dal nome del file e dalla data corrente.
+
+**Template personalizzato**: per usare un template `.docx` diverso da quello incluso:
+
+```bash
+python3 -m docgen --render *.md --template /percorso/mio_template.docx
+```
+
+---
+
+### 4.5 Pulizia file temporanei (`--cleanup`)
+
+**Scopo**: rimuove i file di contesto generati dall'agent-export, lasciando solo i documenti finali `.md` e `.docx`.
+
+**Comando:**
+
+```bash
+python3 -m docgen --cleanup DocGen/
+```
+
+**File rimossi:**
+- `analisi_statica.md`
+- `struttura_progetto.txt`
+- `docgen_context.md` / `docgen_context_*.md`
+- `docgen_files.json`
+- `docgen_index.md`
+- `docgen_instructions.md`
+
+---
+
 ## 5. Opzioni CLI complete
 
 | Opzione | Default | Descrizione |
@@ -224,6 +307,10 @@ python3 -m docgen /percorso/al/progetto -n "Nome Progetto"
 | `-m`, `--model` | `claude-sonnet-4-20250514` | Modello Claude (solo per modalità API) |
 | `-d`, `--dry-run` | — | Solo analisi, nessuna generazione |
 | `--agent-export` | — | Esporta contesto per agenti AI |
+| `--render FILE ...` | — | Converte `.md` in `.docx` con template aziendale |
+| `--template PATH` | `templates/template_aziendale.docx` | Template `.docx` personalizzato |
+| `--cleanup [DIR]` | — | Rimuove file temporanei dell'agent-export |
+| `--meta KEY=VALUE ...` | — | Metadati copertina (es. `CLIENTE="Acme"`) |
 | `--chunk-budget` | 80000 | Token massimi per chunk |
 | `--max-tokens` | 200000 | Token massimi contesto modello |
 
@@ -295,7 +382,17 @@ python3 -m docgen /percorso/al/progetto -n "Nome Progetto"
 3. **Generazione** — apri VS Code sul progetto e dai all'agente:
    > Leggi `DocGen/docgen_context.md` (o `DocGen/docgen_instructions.md` per multi-servizio) e segui le istruzioni per generare la documentazione.
 
-4. **Revisione** — controlla i documenti generati e correggi eventuali imprecisioni.
+4. **Conversione DOCX** — converti i documenti generati in formato Word con template aziendale:
+   ```bash
+   python3 -m docgen --render DocGen/*.md --meta PROGETTO="Nome" CLIENTE="Nome Cliente"
+   ```
+
+5. **Pulizia** — rimuovi i file temporanei:
+   ```bash
+   python3 -m docgen --cleanup DocGen/
+   ```
+
+6. **Revisione** — controlla i documenti generati e correggi eventuali imprecisioni.
 
 ---
 
