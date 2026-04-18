@@ -6,3 +6,5 @@ docgen.egg-info
 .DS_Store
 release
 docgen/__pycache__
+.kilo
+tests/__pycache__
