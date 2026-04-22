@@ -153,7 +153,11 @@ python3 -m docgen /percorso/al/progetto --agent-export -n "Nome Progetto"
 
 3. Apri la chat dell'agente (Copilot, Kilo Code, ecc.) e scrivi:
 
-   > Leggi il file `DocGen/docgen_context.md` e segui le istruzioni contenute per generare la documentazione. Salva i documenti nella cartella `DocGen/`.
+   3a. Progetto singolo:
+   > Leggi il file `DocGen/docgen_context.md` e segui le istruzioni contenute per generare la documentazione. Salva i documenti nella cartella `DocGen/`. 
+
+   3b. Progetto multi-microservizio:
+   > Leggi il file `DocGen/docgen_instrucions.md` e segui le istruzioni contenute per generare la documentazione. Salva i documenti nella cartella `DocGen/`.
 
 4. L'agente leggerà il contesto, poi leggerà i file sorgente dal workspace e genererà i documenti
 
