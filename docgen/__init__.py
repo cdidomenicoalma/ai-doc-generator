@@ -1,3 +1,6 @@
-"""DocGen — Generatore automatico di documentazione da codebase."""
+from importlib.metadata import version, PackageNotFoundError
 
-__version__ = "0.1.0"
+try:
+    __version__ = version("docgen")
+except PackageNotFoundError:
+    __version__ = "0.0.0-dev"

@@ -1,0 +1,11 @@
+{
+  "github_owner": "cdidomenicoalma",
+  "github_repo": "ai-doc-generator",
+  "latest_release_api": "https://api.github.com/repos/cdidomenicoalma/ai-doc-generator/releases/latest",
+  "asset_name_pattern": "docgen_<version>.zip",
+  "zip_root_folder": "ai-doc-generator",
+  "python_preferred": "python3",
+  "python_fallback": "python",
+  "default_cleanup": true,
+  "default_render": false
+}

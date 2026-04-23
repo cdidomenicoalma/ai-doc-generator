@@ -3,7 +3,7 @@
 
 import os
 import zipfile
-from datetime import datetime
+import tomllib  # Python 3.11+
 from pathlib import Path
 
 # Root del progetto
@@ -15,6 +15,7 @@ FOLDER_NAME = "ai-doc-generator"
 # File e cartelle da includere
 INCLUDE = [
     "docgen/",          # Package Python
+    "templates/",       # Template DOCX aziendale (richiesto da --render)
     "GUIDA_UTENTE.md",
     "README.md",
     "pyproject.toml",
@@ -25,12 +26,18 @@ INCLUDE = [
 # Directory di output
 RELEASE_DIR = PROJECT_ROOT / "release"
 
+def get_version() -> str:
+    pyproject_path = PROJECT_ROOT / "pyproject.toml"
+    with pyproject_path.open("rb") as f:
+        data = tomllib.load(f)
+    return data["project"]["version"]
+
 
 def main() -> None:
     RELEASE_DIR.mkdir(exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    zip_name = f"docgen_{timestamp}.zip"
+    version = get_version()
+    zip_name = f"docgen_{version}.zip"
     zip_path = RELEASE_DIR / zip_name
 
     count = 0
