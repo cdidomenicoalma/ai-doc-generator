@@ -26,8 +26,10 @@ from .chunker import create_chunks, ChunkPlan
 from .prompts import (
     SYSTEM_PROMPT, ANALYZE_CHUNK, FUNCTIONAL_DOC, TECHNICAL_DOC,
     SYSTEM_ARCHITECTURE_DOC, SERVICE_SUMMARY,
+    TEST_DOCUMENT_TEMPLATE,
 )
 from .generator import smart_truncate
+from . import modes as _modes
 
 console = Console()
 
@@ -771,7 +773,7 @@ def _generate_module_context_md(
     return "\n".join(lines)
 
 
-def _generate_instructions_md(
+def _generate_instructions_md_docs(
     config: DocGenConfig,
     module_names: list[str],
 ) -> str:
@@ -868,6 +870,219 @@ def _generate_instructions_md(
         "docgen_files.json, docgen_index.md, docgen_instructions.md, struttura_progetto.txt) "
         "lasciando solo i documenti finali .md e .docx.\n"
     )
+
+    return "\n".join(lines)
+
+
+# ── Generatori modalità TESTS ─────────────────────────────────────────────────
+
+def _generate_instructions_md_tests(
+    config: DocGenConfig,
+    module_names: list[str],
+    test_analysis: 'TestStaticAnalysis | None',
+) -> str:
+    """Genera docgen_instructions.md per la modalità tests (multi-microservizio)."""
+    from .analyzer import TestStaticAnalysis as _TSA
+    lines: list[str] = []
+
+    lines.append("# Istruzioni per la generazione dell'analisi di test")
+    lines.append(f"\n> Progetto: {config.project_name}")
+    lines.append(f"> Modalità: tests\n")
+
+    lines.append("## Ruolo\n")
+    lines.append(
+        "Sei un QA engineer senior con accesso al filesystem del progetto. "
+        "Hai a disposizione i file di contesto per ogni microservizio (analisi statica, "
+        "firme di metodi, validazioni, autorizzazioni, enumerazioni, eccezioni, chiamate esterne) "
+        "e puoi leggere qualsiasi file direttamente dalla workspace.\n\n"
+        "**NON ti serve che il codice sia incollato nei prompt** — leggi i file dal filesystem quando necessario.\n"
+    )
+
+    lines.append("## Piano di lavoro\n")
+    lines.append("Procedi nell'ordine seguente:\n")
+
+    for i, mod_name in enumerate(module_names, 1):
+        lines.append(
+            f"{i}. Leggi il file `docgen_context_{mod_name}.md`, "
+            f"poi genera `{mod_name}/analisi_test.md`."
+        )
+
+    n = len(module_names) + 1
+    lines.append(
+        f"{n}. Dopo aver completato tutti i microservizi, genera il documento d'insieme:\n"
+        f"   - `analisi_test_sistema.md` — panoramica sistema, aree di rischio "
+        f"trasversali, casi di integrazione cross-microservizio\n"
+    )
+
+    lines.append("## Regole di lettura file\n")
+    lines.append("- File 🔴 (obbligatori): leggili SEMPRE prima di generare il documento.")
+    lines.append("- File 🟡 (importanti): leggili se servono dettagli su entità, repository o configurazioni.")
+    lines.append("- File ⚪ (supporto): leggili solo se hai bisogno di contesto aggiuntivo.")
+    lines.append("- Per i file classificati come business_critical, leggi SEMPRE il contenuto completo.\n")
+
+    lines.append("## Formato output\n")
+    lines.append(
+        "Tutti i documenti devono essere in Markdown. Scrivi in italiano. "
+        "Usa tabelle per i casi di test con ID progressivo (TC-F-001, TC-T-001, ecc.).\n"
+    )
+
+    lines.append("---\n")
+    lines.append("## Template: Documento di Analisi Test\n")
+    lines.append("Segui ESATTAMENTE questa struttura per ogni documento di analisi test:\n")
+    lines.append(TEST_DOCUMENT_TEMPLATE.strip())
+    lines.append("")
+
+    lines.append("---\n")
+    lines.append(f"## Output\n")
+    lines.append(f"Salva tutti i documenti generati in: `{config.output_dir}`\n")
+
+    lines.append("---\n")
+    lines.append("## Post-generazione: pulizia\n")
+    lines.append(
+        "Dopo aver generato TUTTI i documenti .md, esegui il cleanup:\n\n"
+        "```bash\n"
+    )
+    lines.append(f"python -m docgen --cleanup {config.output_dir}\n")
+    lines.append("```\n")
+
+    return "\n".join(lines)
+
+
+def _generate_module_context_md_tests(
+    module_name: str,
+    module_files: list['ScannedFile'],
+    analysis: ProjectAnalysis,
+    test_analysis: 'TestStaticAnalysis | None',
+    config: DocGenConfig,
+) -> str:
+    """Genera il contesto di test per un singolo microservizio."""
+    lines: list[str] = []
+
+    lines.append(f"# Analisi Test — Microservizio: {module_name}")
+    lines.append(f"\n> Progetto: {config.project_name}")
+    lines.append(f"> Modalità: tests")
+    lines.append(f"> Generato da DocGen il {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
+
+    # Statistiche modulo
+    lines.append("## Statistiche\n")
+    lines.append(f"- **File**: {len(module_files)}")
+    ext_counts: dict[str, int] = {}
+    for f in module_files:
+        ext_counts[f.extension] = ext_counts.get(f.extension, 0) + 1
+    lang_list = ", ".join(f"{ext} ({c})" for ext, c in sorted(ext_counts.items(), key=lambda x: -x[1])[:10])
+    lines.append(f"- **Linguaggi**: {lang_list}")
+    lines.append("")
+
+    # Analisi statica standard filtrata per modulo
+    module_analysis_text = analysis.summary_text_for_module(module_name)
+    if module_analysis_text:
+        lines.append(module_analysis_text)
+        lines.append("")
+
+    # Analisi estesa per test filtrata per modulo
+    if test_analysis:
+        test_summary = test_analysis.summary_text_for_module(module_name)
+        if test_summary:
+            lines.append(test_summary)
+            lines.append("")
+
+    # File per urgenza
+    lines.append("## File del microservizio\n")
+    _append_urgency_file_list(lines, module_files)
+
+    lines.append("---\n")
+    lines.append("## Documento da generare\n")
+    lines.append(f"Per questo microservizio genera:\n")
+    lines.append(f"1. `{module_name}/analisi_test.md`\n")
+    lines.append(
+        "Leggi i file 🔴 obbligatoriamente. Usa l'analisi statica estesa "
+        "(firme, validazioni, sicurezza, eccezioni) per identificare i casi di test.\n"
+    )
+
+    return "\n".join(lines)
+
+
+def _generate_context_md_tests(
+    scan_result: ScanResult,
+    analysis: ProjectAnalysis,
+    test_analysis: 'TestStaticAnalysis | None',
+    config: DocGenConfig,
+    is_hybrid: bool,
+    module_plans: 'dict[str, ChunkPlan] | None',
+) -> str:
+    """Genera docgen_context.md per la modalità tests (progetto singolo)."""
+    lines: list[str] = []
+
+    lines.append(f"# Analisi Test — Progetto: {config.project_name}")
+    lines.append(f"\n> Modalità: tests")
+    lines.append(f"> Generato da DocGen il {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    lines.append(f"> Progetto: `{config.project_path}`\n")
+
+    # Struttura directory
+    lines.append("## Struttura directory\n")
+    lines.append("```")
+    lines.append(_build_project_tree(scan_result))
+    lines.append("```\n")
+
+    # Statistiche
+    lines.append("## Statistiche\n")
+    ext_counts = scan_result.top_extensions(15)
+    lang_list = ", ".join(f"{ext} ({count})" for ext, count in ext_counts)
+    lines.append(f"- **File totali**: {scan_result.total_files}")
+    lines.append(f"- **Moduli rilevati**: {', '.join(scan_result.modules)}")
+    lines.append(f"- **Linguaggi**: {lang_list}")
+    if is_hybrid and module_plans:
+        lines.append(f"- **Microservizi**: {len(module_plans)}")
+    lines.append("")
+
+    # Analisi statica standard
+    lines.append(analysis.summary_text())
+    lines.append("")
+
+    # Analisi estesa per test
+    if test_analysis:
+        test_text = test_analysis.summary_text()
+        if test_text:
+            lines.append(test_text)
+            lines.append("")
+
+    # File per urgenza
+    lines.append("## File classificati per urgenza\n")
+    _append_urgency_file_list(lines, scan_result.files)
+
+    # Istruzioni per l'agente
+    lines.append("---\n")
+    lines.append("## Istruzioni per la generazione dell'analisi di test\n")
+    lines.append(
+        "Sei un QA engineer senior con accesso al filesystem del progetto. "
+        "Hai a disposizione l'analisi strutturale sopra e puoi leggere qualsiasi file "
+        "direttamente dalla workspace.\n\n"
+        "**NON ti serve che il codice sia incollato nei prompt** — leggi i file dal filesystem quando necessario.\n"
+    )
+
+    lines.append("### Piano di lavoro\n")
+    lines.append("Devi generare il seguente documento Markdown:\n")
+    lines.append("1. `analisi_test.md` — documento completo di analisi test\n")
+    lines.append("### Procedura:\n")
+    lines.append("1. Leggi i file 🔴 (obbligatori) e 🟡 (se necessario) dalla lista sopra")
+    lines.append("2. Usa l'analisi statica estesa (firme, validazioni, sicurezza, eccezioni) per identificare i casi di test")
+    lines.append("3. Genera il documento seguendo il template sotto\n")
+
+    lines.append("---\n")
+    lines.append("## Template: Documento di Analisi Test\n")
+    lines.append("Segui ESATTAMENTE questa struttura:\n")
+    lines.append(TEST_DOCUMENT_TEMPLATE.strip())
+    lines.append("")
+
+    lines.append("---\n")
+    lines.append(f"## Output\n")
+    lines.append(f"Salva il documento generato in: `{config.output_dir}`\n")
+
+    lines.append("---\n")
+    lines.append("## Post-generazione: pulizia\n")
+    lines.append("```bash\n")
+    lines.append(f"python -m docgen --cleanup {config.output_dir}\n")
+    lines.append("```\n")
 
     return "\n".join(lines)
 
@@ -1153,12 +1368,16 @@ def _agent_export(
     config: DocGenConfig,
     is_hybrid: bool,
     module_plans: dict[str, ChunkPlan] | None,
+    mode: str = _modes.DOCS,
+    test_analysis: 'TestStaticAnalysis | None' = None,
 ) -> None:
     """Esegue l'export per modalità agent-ready.
 
     Per progetti multi-microservizio (P6): genera file separati per modulo.
     Per progetti singoli: genera docgen_context.md monolitico.
+    Il parametro `mode` determina il contenuto delle istruzioni e dei contesti.
     """
+    from .analyzer import TestStaticAnalysis
     out_path = Path(config.output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
@@ -1167,16 +1386,24 @@ def _agent_export(
         sorted_modules = sorted(module_plans.keys())
         by_module = scan_result.files_by_module()
 
-        # 1. docgen_instructions.md — istruzioni + template (no dati)
-        instr_md = _generate_instructions_md(config, sorted_modules)
+        # 1. docgen_instructions.md — istruzioni + template (contenuto dipende da mode)
+        if mode == _modes.TESTS:
+            instr_md = _generate_instructions_md_tests(config, sorted_modules, test_analysis)
+        else:
+            instr_md = _generate_instructions_md_docs(config, sorted_modules)
         instr_path = out_path / "docgen_instructions.md"
         instr_path.write_text(instr_md, encoding="utf-8")
         console.print(f"  [green]✓[/green] {instr_path.name} ({len(instr_md):,} caratteri)")
 
-        # 2. docgen_context_{module}.md — uno per microservizio
+        # 2. docgen_context_{module}.md — uno per microservizio (contenuto dipende da mode)
         for mod_name in sorted_modules:
             mod_files = by_module.get(mod_name, [])
-            mod_md = _generate_module_context_md(mod_name, mod_files, analysis, config)
+            if mode == _modes.TESTS:
+                mod_md = _generate_module_context_md_tests(
+                    mod_name, mod_files, analysis, test_analysis, config
+                )
+            else:
+                mod_md = _generate_module_context_md(mod_name, mod_files, analysis, config)
             mod_path = out_path / f"docgen_context_{mod_name}.md"
             mod_path.write_text(mod_md, encoding="utf-8")
             console.print(f"  [green]✓[/green] {mod_path.name} ({len(mod_md):,} caratteri, {len(mod_files)} file)")
@@ -1196,12 +1423,17 @@ def _agent_export(
         )
         console.print(f"  [green]✓[/green] {json_path.name} ({len(files_data['files'])} file)")
 
-        n_docs = f"{len(module_plans) * 2 + 3} documenti ({len(module_plans)} microservizi × 2 + 3 d'insieme)"
+        mode_label = "analisi test" if mode == _modes.TESTS else "documentazione"
+        if mode == _modes.TESTS:
+            n_docs = f"{len(module_plans)} analisi test (una per microservizio) + 1 documento sistema"
+        else:
+            n_docs = f"{len(module_plans) * 2 + 3} documenti ({len(module_plans)} microservizi × 2 + 3 d'insieme)"
         n_files = 3 + len(sorted_modules)  # instructions + N contexts + index + json
         console.print(Panel(
             f"[bold green]Agent export completato![/bold green]\n\n"
+            f"Modalità: [bold]{mode}[/bold] ({mode_label})\n"
             f"File generati: {n_files + 1}\n"
-            f"  • [bold]docgen_instructions.md[/bold] — istruzioni generali + template\n"
+            f"  • [bold]docgen_instructions.md[/bold] — istruzioni + template\n"
             + "".join(f"  • [bold]docgen_context_{m}.md[/bold] — contesto {m}\n" for m in sorted_modules)
             + f"  • [bold]docgen_index.md[/bold] — indice\n"
             f"  • [bold]docgen_files.json[/bold] — dati machine-readable\n\n"
@@ -1213,9 +1445,14 @@ def _agent_export(
             border_style="green",
         ))
     else:
-        # ── Export progetto singolo (come prima) ─────────────────────
-        # 1. docgen_context.md
-        context_md = _generate_context_md(scan_result, analysis, config, is_hybrid, module_plans)
+        # ── Export progetto singolo ───────────────────────────────────
+        # 1. docgen_context.md (contenuto dipende da mode)
+        if mode == _modes.TESTS:
+            context_md = _generate_context_md_tests(
+                scan_result, analysis, test_analysis, config, is_hybrid, module_plans
+            )
+        else:
+            context_md = _generate_context_md(scan_result, analysis, config, is_hybrid, module_plans)
         context_path = out_path / "docgen_context.md"
         context_path.write_text(context_md, encoding="utf-8")
         console.print(f"  [green]✓[/green] {context_path.name} ({len(context_md):,} caratteri)")
@@ -1235,13 +1472,19 @@ def _agent_export(
         index_path.write_text(index_md, encoding="utf-8")
         console.print(f"  [green]✓[/green] {index_path.name}")
 
+        mode_label = "analisi test" if mode == _modes.TESTS else "documentazione"
+        if mode == _modes.TESTS:
+            docs_note = "1 documento (`analisi_test.md`)"
+        else:
+            docs_note = "2 documenti (`specifica_funzionale.md` + `specifica_tecnica.md`)"
         console.print(Panel(
             f"[bold green]Agent export completato![/bold green]\n\n"
+            f"Modalità: [bold]{mode}[/bold] ({mode_label})\n"
             f"File generati:\n"
             f"  • [bold]{context_path.name}[/bold] — contesto strutturato + istruzioni + template\n"
             f"  • [bold]{json_path.name}[/bold] — dati machine-readable\n"
             f"  • [bold]{index_path.name}[/bold] — indice\n\n"
-            f"Documenti da generare: 2 documenti\n"
+            f"Documenti da generare: {docs_note}\n"
             f"Output in: {config.output_dir}\n\n"
             f"[bold]Come usare:[/bold]\n"
             f"Passa `docgen_context.md` come prompt all'agente (Copilot, Kilo Code, Claude Code).\n"
@@ -1399,7 +1642,51 @@ def build_config(args: argparse.Namespace) -> DocGenConfig:
         export_prompts=False,
         llm_bridge=False,
         agent_export=args.agent_export,
+        mode=getattr(args, "mode", _modes.DOCS) or _modes.DOCS,
     )
+
+
+def _select_mode_interactive() -> str:
+    """Chiede interattivamente all'utente quale modalità utilizzare."""
+    console.print(Panel(
+        "[bold yellow]Seleziona la modalità operativa[/bold yellow]\n\n"
+        + "\n".join(
+            f"  [bold cyan][{i}][/bold cyan]  [bold]{k}[/bold] — {v}"
+            for i, (k, v) in enumerate(_modes.AVAILABLE_MODES.items(), 1)
+        ),
+        border_style="yellow",
+    ))
+
+    mode_keys = list(_modes.AVAILABLE_MODES.keys())
+    while True:
+        choice = console.input(
+            f"[bold]Modalità (1–{len(mode_keys)}): [/bold]"
+        ).strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(mode_keys):
+            selected = mode_keys[int(choice) - 1]
+            console.print(f"\n  Modalità selezionata: [bold green]{selected}[/bold green]\n")
+            return selected
+        # Accetta anche il nome diretto
+        if choice in mode_keys:
+            return choice
+        console.print(f"[red]Scelta non valida. Inserisci un numero da 1 a {len(mode_keys)}.[/red]")
+
+
+def _print_test_analysis(test_analysis: 'TestStaticAnalysis') -> None:
+    """Stampa un riepilogo dell'analisi estesa per la modalità tests."""
+    from rich.table import Table as _Table
+    console.print(f"\n[bold]🧪 Analisi estesa per test[/bold]")
+    table = _Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="cyan")
+    table.add_column()
+    table.add_row("Firme di metodi", str(len(test_analysis.method_signatures)))
+    table.add_row("Regole di validazione", str(len(test_analysis.validation_rules)))
+    table.add_row("Regole di sicurezza", str(len(test_analysis.security_rules)))
+    table.add_row("Enumerazioni", str(len(test_analysis.enums)))
+    table.add_row("Chiamate esterne", str(len(test_analysis.external_calls)))
+    table.add_row("Eccezioni (lanciate)", str(sum(1 for e in test_analysis.exceptions if e.is_thrown)))
+    table.add_row("Eccezioni (gestite)", str(sum(1 for e in test_analysis.exceptions if not e.is_thrown)))
+    console.print(table)
 
 
 def main() -> None:
@@ -1452,6 +1739,16 @@ def main() -> None:
         help="Budget token per chunk (default: 80000)",
     )
     parser.add_argument(
+        "--mode",
+        choices=list(_modes.AVAILABLE_MODES.keys()),
+        default=None,
+        help=(
+            "Modalità operativa: "
+            + " | ".join(f"{k} ({v})" for k, v in _modes.AVAILABLE_MODES.items())
+            + ". Se omesso, viene chiesto interattivamente."
+        ),
+    )
+    parser.add_argument(
         "--agent-export",
         action="store_true",
         help="Esporta contesto strutturato per agenti AI (Copilot, Kilo Code, Claude Code) — nessuna chiamata API",
@@ -1493,6 +1790,14 @@ def main() -> None:
         _handle_cleanup(args)
         return
 
+    # ── Selezione modalità (interattiva se non fornita) ───────────────
+    if not args.mode:
+        if sys.stdin.isatty():
+            args.mode = _select_mode_interactive()
+        else:
+            # Contesto non interattivo (script/skill): default a docs
+            args.mode = _modes.DOCS
+
     config = build_config(args)
 
     _print_banner()
@@ -1512,6 +1817,14 @@ def main() -> None:
     console.print(f"\n[bold yellow]Step 2/4[/bold yellow] — Analisi statica\n")
     analysis = analyze_project(scan_result)
     _print_analysis(analysis)
+
+    # ── Step 2b: Analisi estesa per modalità tests ────────────────────────
+    test_analysis = None
+    if config.mode == _modes.TESTS:
+        from .analyzer import analyze_project_for_tests
+        console.print(f"\n[bold yellow]Step 2b[/bold yellow] — Analisi estesa per test\n")
+        test_analysis = analyze_project_for_tests(scan_result)
+        _print_test_analysis(test_analysis)
 
     # ── Step 3: Pianificazione chunk ─────────────────────────────────────
     console.print(f"\n[bold yellow]Step 3/4[/bold yellow] — Pianificazione chunk\n")
@@ -1536,16 +1849,16 @@ def main() -> None:
 
     # ── Dry run: fine qui ────────────────────────────────────────────────
     if config.dry_run:
-        mode_label = ""
+        mode_label = f"  Modalità: [bold]{config.mode}[/bold]\n"
+        hybrid_note = ""
         if is_hybrid_candidate:
-            mode_label = (
-                "\n[yellow]Modalità ibrida disponibile: per-microservizio + architettura di sistema[/yellow]"
-            )
+            hybrid_note = "\n[yellow]Modalità ibrida disponibile: per-microservizio + architettura di sistema[/yellow]"
         console.print(Panel(
             "[bold green]Dry run completato![/bold green]\n"
+            f"{mode_label}"
             "Nessuna chiamata API effettuata.\n"
             f"Output in: {config.output_dir}"
-            + mode_label,
+            + hybrid_note,
             border_style="green",
         ))
         return
@@ -1553,12 +1866,15 @@ def main() -> None:
     # ── Agent export: genera context + json e stop ───────────────────────
     if config.agent_export:
         console.print(
-            f"\n[bold yellow]Step 4/4[/bold yellow] — Agent export\n"
+            f"\n[bold yellow]Step 4/4[/bold yellow] — Agent export "
+            f"[dim](modalità: {config.mode})[/dim]\n"
         )
         _agent_export(
             scan_result, analysis, config,
             is_hybrid=is_hybrid_candidate,
             module_plans=module_plans,
+            mode=config.mode,
+            test_analysis=test_analysis,
         )
         return
 

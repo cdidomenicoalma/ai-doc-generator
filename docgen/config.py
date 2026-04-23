@@ -80,6 +80,7 @@ class DocGenConfig:
     export_prompts: bool = False
     llm_bridge: bool = False
     agent_export: bool = False
+    mode: str = "docs"  # "docs" | "tests" | future modes
 
     # Filtri personalizzabili
     ignore_dirs: set[str] = field(default_factory=lambda: set(IGNORE_DIRS))

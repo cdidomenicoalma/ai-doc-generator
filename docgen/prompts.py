@@ -349,3 +349,164 @@ Produci un riepilogo SINTETICO (max 500 parole) con:
 
 NON dilungarti nei dettagli implementativi. Questo riepilogo serve per capire il ruolo del servizio nel sistema complessivo.
 """
+
+
+# ── Template modalità TESTS ───────────────────────────────────────────────────
+
+TEST_DOCUMENT_TEMPLATE = """Produci un documento Markdown professionale con ESATTAMENTE questa struttura:
+
+# Analisi Test — {project_name}
+
+## 1. Panoramica dell'ambito di test
+### 1.1 Scopo del documento
+### 1.2 Componenti nel perimetro di test
+Elenca i layer (controller, service, repository, frontend, ecc.) con le classi principali.
+### 1.3 Componenti fuori perimetro (se noti)
+### 1.4 Stack tecnologico rilevato
+### 1.5 Dipendenze esterne da mockare
+Elenca servizi esterni, database, code messaggi, ecc. che richiedono mock/stub nei test.
+
+## 2. Aree di rischio
+
+Per ogni area critica identificata nel codice, compila la tabella:
+
+| Area | Descrizione del rischio | Impatto | Componenti coinvolti |
+|---|---|---|---|
+
+Ordina per impatto (Alto → Medio → Basso).
+Includi almeno: logica di business complessa, sicurezza/autorizzazione, integrazioni esterne, gestione errori, stato condiviso.
+
+## 3. Casi di test funzionali
+
+Tabella principale dei test funzionali (orientati al comportamento osservabile dall'esterno):
+
+| ID | Titolo | Componente / Endpoint | Precondizioni | Input / Azione | Output / Stato atteso | Priorità |
+|---|---|---|---|---|---|---|
+
+Codifica progressiva: TC-F-001, TC-F-002, ...
+
+Per ogni operazione CRUD e flusso principale, includi ALMENO:
+- Happy path (dati validi, utente autorizzato)
+- Dato non trovato (404 / null / empty list)
+- Input non valido o mancante (validation error)
+- Accesso non autorizzato (ruolo sbagliato o assente)
+- Conflitto / duplicato (se applicabile)
+
+## 4. Casi di test tecnici (unit / layer)
+
+Tabella dei test a livello di metodo/classe:
+
+| ID | Titolo | Layer | Classe / Metodo testato | Scenario | Input | Output atteso | Note |
+|---|---|---|---|---|---|---|---|
+
+Codifica: TC-T-001, TC-T-002, ...
+
+Per ogni metodo pubblico nei layer service/controller, includi:
+- Comportamento normale con input valido
+- Input null o vuoto per ogni parametro obbligatorio
+- Eccezione attesa (verifica tipo e messaggio)
+- Comportamento al boundary (valori min/max da annotazioni @Min, @Max, @Size)
+- Comportamento condizionale (if/switch principali)
+- Metodi @Transactional: verifica rollback su eccezione
+
+## 5. Casi di integrazione
+
+| ID | Titolo | Componenti coinvolti | Scenario | Precondizioni | Output atteso | Mock necessari |
+|---|---|---|---|---|---|---|
+
+Codifica: TC-I-001, TC-I-002, ...
+
+Includi scenari di:
+- Comunicazione tra layer (controller → service → repository)
+- Comunicazione tra microservizi (se applicabile)
+- Integrazione con database (persistenza, query complesse, transazioni)
+- Integrazione con sistemi esterni (mock del client HTTP)
+- Flussi end-to-end significativi
+
+## 6. Casi negativi e di errore
+
+| ID | Titolo | Scenario di errore | Input | Errore / Eccezione attesa | HTTP Status | Note |
+|---|---|---|---|---|---|---|
+
+Codifica: TC-N-001, TC-N-002, ...
+
+Copri obbligatoriamente:
+- Campo obbligatorio null o vuoto (per ogni @NotNull, @NotBlank rilevato)
+- Valore fuori range (per ogni @Min, @Max, @Size rilevato)
+- Formato errato (email, UUID, data, ecc.)
+- Risorsa non trovata (ID inesistente)
+- Token assente, scaduto o con ruolo insufficiente
+- Stato non valido per l'operazione (es. cancellare un ordine già consegnato)
+- Timeout o indisponibilità del servizio esterno (se applicabile)
+- Risposta malformata da sistema esterno
+- Violazione di constraint database (duplicato, FK violation)
+
+## 7. Edge case
+
+| ID | Titolo | Descrizione | Componente | Comportamento atteso |
+|---|---|---|---|---|
+
+Codifica: TC-E-001, TC-E-002, ...
+
+Includi:
+- Lista vuota vs null
+- Stringa con caratteri speciali, spazi, lunghezza massima esatta
+- Paginazione: prima pagina, ultima pagina, pagina vuota, pagina oltre il limite
+- Concorrenza: doppia richiesta simultanea della stessa operazione
+- Operazioni idempotenti: stessa richiesta due volte
+- Enum con valore non mappato
+- Data/ora: timezone, ora legale, mezzanotte, fine mese
+
+## 8. Test di regressione
+
+Scenari prioritari per la suite di regressione automatica:
+
+| ID | Titolo | Motivazione | Componente | Tipo |
+|---|---|---|---|---|
+
+Codifica: TC-R-001, TC-R-002, ...
+
+Includi i test più critici per prevenire regressioni sui flussi principali e sulle regole di business.
+
+## 9. Precondizioni e dati di test suggeriti
+
+Per ogni scenario complesso, descrivi:
+
+### 9.1 Stato del database
+Dati minimi necessari per eseguire i test (entità pre-esistenti, relazioni richieste).
+
+### 9.2 Utenti e ruoli
+Elenco degli utenti/ruoli necessari con i permessi associati.
+
+### 9.3 Mock e stub
+Per ogni dipendenza esterna, indica cosa mockare e quale comportamento simulare (risposta OK, errore, timeout).
+
+### 9.4 Esempi di payload
+Per i casi più significativi (creazione, aggiornamento), fornisci esempi di JSON/payload di test.
+
+## 10. Priorità e tracciabilità
+
+| Componente / Funzionalità | Copertura test suggerita | Priorità | TC associati |
+|---|---|---|---|
+
+## 11. Suggerimenti per l'automazione
+
+### 11.1 Tool consigliati per layer
+In base allo stack rilevato, suggerisci i tool più adatti (es. JUnit 5, Mockito, TestContainers, Playwright, Cypress, pytest, NUnit).
+
+### 11.2 Pattern di test consigliati
+- Arrange / Act / Assert
+- Test Doubles (mock, stub, spy, fake)
+- Test Data Builder
+- Parameterized Tests
+
+### 11.3 Aree difficili da testare
+Identifica componenti con alta complessità di test e proponi strategie alternative (es. contract testing, integration test con DB reale, snapshot test).
+
+IMPORTANTE:
+- Non inventare funzionalità o scenari non deducibili dal codice.
+- Per ogni caso di test, indica il componente sorgente (classe/metodo/endpoint) da cui è derivato.
+- Evita casi banali ripetuti (es. un TC per ogni getter/setter è eccessivo).
+- Privilegia la copertura delle aree di rischio, delle regole di business e dei percorsi di errore.
+- Se una sezione non ha dati sufficienti, scrivi: "Da completare — informazioni non rilevabili dal codice sorgente".
+"""

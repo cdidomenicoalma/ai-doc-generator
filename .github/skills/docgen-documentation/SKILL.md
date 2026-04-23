@@ -9,7 +9,8 @@ description: Genera documentazione tecnica e funzionale usando DocGen con instal
 Eseguire DocGen automaticamente:
 - installazione se non presente
 - aggiornamento se versione obsoleta
-- generazione documentazione
+- selezione interattiva della modalità operativa
+- generazione output in base alla modalità scelta
 
 ## Parametri
 - Repository release DocGen: `cdidomenicoalma/ai-doc-generator`
@@ -20,6 +21,7 @@ Eseguire DocGen automaticamente:
 - Fallback Python: `python`
 - Cleanup default: `true`
 - Render default: `false`
+- Mode default: **nessuno** — chiedere sempre all'utente prima di eseguire
 
 ---
 
@@ -158,25 +160,48 @@ Se la verifica fallisce, interrompi il workflow e segnala errore.
 
 ---
 
-## Step 6 — Esecuzione DocGen
+## Step 6 — Selezione modalità operativa
 
-Dopo esserti assicurato che DocGen sia installato e aggiornato, esegui:
+Prima di eseguire DocGen, chiedi all'utente quale modalità vuole utilizzare.
+
+**Messaggio da mostrare all'utente:**
+
+> Quale modalità vuoi usare?
+>
+> 1. **docs** — genera la documentazione funzionale + tecnica (Specifica Funzionale, Specifica Tecnica, Architettura di Sistema)
+> 2. **tests** — genera il documento di analisi test (casi di test, aree di rischio, edge case, scenari negativi, dati di test)
+
+Attendi la risposta dell'utente. Accetta:
+- `1`, `docs`, `doc`, `documentazione` → imposta `MODE=docs`
+- `2`, `tests`, `test`, `analisi test` → imposta `MODE=tests`
+
+Non procedere allo Step 7 finché l'utente non ha scelto.
+
+---
+
+## Step 7 — Esecuzione DocGen
+
+Dopo aver ricevuto la scelta dell'utente, esegui:
 
 ```bash
-python3 -m docgen . --agent-export -n "<nome_progetto>"
+python3 -m docgen . --agent-export --mode <MODE> -n "<nome_progetto>"
 ```
 
 Fallback:
 
 ```bash
-python -m docgen . --agent-export -n "<nome_progetto>"
+python -m docgen . --agent-export --mode <MODE> -n "<nome_progetto>"
 ```
+
+Dove `<MODE>` è `docs` o `tests` in base alla scelta dell'utente (Step 6).
 
 Se l'utente non fornisce il nome progetto, usa il nome della cartella workspace come default ragionevole.
 
+NON omettere mai `--mode`: la skill opera in contesto non interattivo e senza `--mode` esplicito DocGen userebbe un fallback silenzioso.
+
 ---
 
-## Step 7 — Verifica output agent-export
+## Step 8 — Verifica output agent-export
 
 DocGen produce file diversi in base al tipo di progetto:
 
@@ -189,29 +214,31 @@ DocGen produce file diversi in base al tipo di progetto:
 
 Se nessuno di questi file esiste, interrompi il workflow e segnala che l'export DocGen non è riuscito correttamente.
 
-Conserva mentalmente il tipo di progetto rilevato (singolo o multi) — ti servirà nello Step 8.
+Conserva mentalmente il tipo di progetto rilevato (singolo o multi) e la modalità scelta — ti serviranno nello Step 9.
 
 ---
 
-## Step 8 — Generazione documentazione
+## Step 9 — Generazione output
 
-**Progetto singolo** (rilevato nello Step 7):
+**Progetto singolo** (rilevato nello Step 8):
 1. Leggi `DocGen/docgen_context.md`.
 2. Segui ESATTAMENTE il piano di lavoro descritto nel file.
 3. Leggi i file sorgente indicati nel contesto.
 4. Genera tutti i documenti Markdown previsti.
 5. Salva gli output nella cartella `DocGen/`.
 
-**Progetto multi-microservizio** (rilevato nello Step 7):
+**Progetto multi-microservizio** (rilevato nello Step 8):
 1. Leggi `DocGen/docgen_instructions.md`.
 2. Segui ESATTAMENTE il piano di lavoro descritto nel file.
 3. Per ogni microservizio, leggi il relativo `DocGen/docgen_context_<nome>.md`.
 4. Genera tutti i documenti Markdown previsti (per-servizio + documenti d'insieme).
 5. Salva gli output nelle cartelle indicate da DocGen.
 
+> I documenti attesi sono diversi per modalità: in `docs` troverai istruzioni per specifica funzionale e tecnica; in `tests` per il documento di analisi test. Segui sempre il piano descritto nel file di contesto.
+
 ---
 
-## Step 9 — Cleanup (DEFAULT: TRUE)
+## Step 10 — Cleanup (DEFAULT: TRUE)
 
 Esegui cleanup automaticamente, salvo richiesta esplicita contraria dell'utente:
 
@@ -227,7 +254,7 @@ python -m docgen --cleanup DocGen/
 
 ---
 
-## Step 10 — Render DOCX (DEFAULT: FALSE)
+## Step 11 — Render DOCX (DEFAULT: FALSE)
 
 Esegui render solo se l'utente lo richiede esplicitamente, ad esempio con `--render`.
 
@@ -245,7 +272,8 @@ python -m docgen --render DocGen/*.md --meta PROGETTO="<nome_progetto>"
 
 IMPORTANTE:
 - il cleanup viene prima del render, come richiesto;
-- il render NON è automatico di default.
+- il render NON è automatico di default;
+- il render ha senso principalmente per la modalità `docs`; per `tests` è opzionale.
 
 ---
 
@@ -257,6 +285,8 @@ IMPORTANTE:
 - Rispetta i template e la struttura documentale generata da DocGen.
 - Leggi sempre i file di contesto prima di generare i documenti.
 - Usa `python3` quando disponibile; in caso contrario usa `python`.
+- **Chiedi SEMPRE la modalità all'utente (Step 6) prima di eseguire DocGen** — non assumere nessun default.
+- Passa **sempre** `--mode` esplicitamente al comando DocGen (mai ometterlo).
 - Cleanup di default: attivo.
 - Render di default: disattivo.
 
@@ -268,3 +298,14 @@ IMPORTANTE:
 - `/docgen-documentation NomeProgetto`
 - `/docgen-documentation NomeProgetto --render`
 - `/docgen-documentation NomeProgetto --no-cleanup`
+
+In tutti i casi la skill chiederà sempre all'utente la modalità prima di procedere.
+
+### Note sulle modalità
+
+| Modalità | Cosa genera l'agente |
+|---|---|
+| `docs` | Specifica Funzionale, Specifica Tecnica (+ Architettura di Sistema per progetti multi-servizio) |
+| `tests` | Documento di Analisi Test (casi funzionali, tecnici, integrazione, negativi, edge case, dati di test, priorità) |
+
+La modalità viene sempre chiesta all'utente allo Step 6 e poi passata esplicitamente a DocGen con `--mode docs` o `--mode tests`.

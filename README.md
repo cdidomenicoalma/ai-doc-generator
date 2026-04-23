@@ -1,11 +1,14 @@
 # DocGen — Generatore Automatico di Documentazione da Codebase
 
-**DocGen** analizza il codice sorgente di un progetto software e genera automaticamente 
-documentazione professionale in italiano:
+**DocGen** analizza il codice sorgente di un progetto software e genera automaticamente documentazione professionale in italiano, con due **modalità operative** selezionabili:
 
+**Modalità `docs`** (default)
 - **Specifica Funzionale** — requisiti, casi d'uso, flussi operativi, modello dati, regole di business
 - **Specifica Tecnica** — architettura, API REST, schema DB, diagrammi Mermaid, stack tecnologico, gestione errori
 - **Architettura di Sistema** — integrazioni tra microservizi, flussi end-to-end (solo progetti multi-servizio)
+
+**Modalità `tests`**
+- **Documento di Analisi Test** — casi di test funzionali, tecnici, di integrazione, negativi, edge case, aree di rischio, priorità, dati di test suggeriti, tracciabilità al codice
 
 Output in formato **Markdown** e **Word (.docx)**.
 
@@ -24,6 +27,7 @@ Output in formato **Markdown** e **Word (.docx)**.
 9. [Domande frequenti](#9-domande-frequenti)
 10. [Stima costi API](#10-stima-costi-api)
 11. [Per sviluppatori](#11-per-sviluppatori)
+12. [Aggiungere una nuova modalità](#12-aggiungere-una-nuova-modalità)
 
 ---
 
@@ -66,11 +70,19 @@ python3 -m docgen /percorso/progetto --dry-run -n "Nome Progetto"
 
 ### 3.2 — Agent Export ⭐ Consigliata
 
-Genera un pacchetto di contesto strutturato che un agente AI (GitHub Copilot, Kilo Code, Claude Code) può usare per generare la documentazione leggendo i file dal workspace. Nessuna API key necessaria.
+Genera un pacchetto di contesto strutturato che un agente AI (GitHub Copilot, Kilo Code, Claude Code) può usare per generare documentazione leggendo i file dal workspace. Nessuna API key necessaria.
+
+Passa `--mode` per scegliere cosa generare:
 
 ```bash
-python3 -m docgen /percorso/progetto --agent-export -n "Nome Progetto"
+# Documentazione (default)
+python3 -m docgen /percorso/progetto --agent-export --mode docs -n "Nome Progetto"
+
+# Analisi di test
+python3 -m docgen /percorso/progetto --agent-export --mode tests -n "Nome Progetto"
 ```
+
+Se ometti `--mode`, DocGen ti chiede interattivamente quale modalità vuoi.
 
 Produce (nella cartella `<progetto>/DocGen/`):
 - **Progetto singolo**: `docgen_context.md` + `docgen_files.json` + `docgen_index.md`
@@ -188,8 +200,11 @@ Output in `<progetto>/DocGen/`:
 # Anteprima
 python3 -m docgen ./test-project --dry-run -n "Gestione Utenti PA"
 
-# Agent export
-python3 -m docgen ./test-project --agent-export -n "Gestione Utenti PA"
+# Agent export — documentazione
+python3 -m docgen ./test-project --agent-export --mode docs -n "Gestione Utenti PA"
+
+# Agent export — analisi di test
+python3 -m docgen ./test-project --agent-export --mode tests -n "Gestione Utenti PA"
 
 # Generazione (richiede API key)
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -206,6 +221,7 @@ python3 -m docgen ./test-project -n "Gestione Utenti PA"
 | `-n`, `--name` | nome cartella | Nome progetto (appare nei documenti) |
 | `-o`, `--output` | `<progetto>/DocGen` | Cartella output |
 | `-f`, `--format` | `all` | Formato: `all`, `md`, `docx` |
+| `--mode` | interattivo | Modalità operativa: `docs` o `tests`. Se omesso, chiede all'utente |
 | `-d`, `--dry-run` | — | Solo anteprima, nessuna API |
 | `--agent-export` | — | Esporta contesto per agenti AI |
 | `--render FILE ...` | — | Converte `.md` in `.docx` con template aziendale |
@@ -267,12 +283,13 @@ La stima viene mostrata nel dry-run e durante la generazione.
 ```
 docgen/
 ├── main.py               # CLI e orchestrazione
-├── config.py             # Configurazione centralizzata
+├── config.py             # Configurazione centralizzata (include campo `mode`)
+├── modes.py              # Costanti e registry delle modalità operative ← qui si aggiungono nuove modalità
 ├── scanner.py            # Scansione filesystem e classificazione file
-├── analyzer.py           # Estrazione statica (endpoint, entità, route, dipendenze)
+├── analyzer.py           # Estrazione statica + analisi estesa per tests (TestStaticAnalysis)
 ├── chunker.py            # Raggruppamento file per modulo con budget token
 ├── generator.py          # Chiamate Claude API con retry
-├── prompts.py            # Template prompt in italiano
+├── prompts.py            # Template prompt in italiano (FUNCTIONAL_DOC, TECHNICAL_DOC, TEST_DOCUMENT_TEMPLATE, ...)
 ├── renderer.py           # Conversione Markdown → DOCX (stile interno)
 └── template_renderer.py  # Conversione Markdown → DOCX con template aziendale
 
@@ -281,7 +298,7 @@ templates/
 └── build_template.py        # Script per ricostruire il template
 
 tests/
-└── test_docgen.py   # 181 test automatici
+└── test_docgen.py   # Test automatici
 
 test-project/        # Progetto di esempio Spring Boot + Angular
 ```
@@ -291,6 +308,37 @@ test-project/        # Progetto di esempio Spring Boot + Angular
 ```bash
 python3 -m pytest tests/ -v
 ```
+
+---
+
+## 12. Aggiungere una nuova modalità
+
+> Questo paragrafo è dedicato agli sviluppatori che modificano DocGen.
+
+Le modalità operative sono centralizzate in **`docgen/modes.py`**. È il punto d'ingresso per aggiungere qualsiasi nuova modalità.
+
+**Passo 1** — Aggiungi la costante e la voce nel registry in `docgen/modes.py`:
+
+```python
+AUDIT = "audit"
+AVAILABLE_MODES["audit"] = "Audit di sicurezza (OWASP Top 10)"
+```
+
+**Passo 2** — Aggiungi il template istruzioni in `docgen/prompts.py`:
+
+```python
+AUDIT_DOCUMENT_TEMPLATE = """Produci un documento Markdown con questa struttura: ..."""
+```
+
+**Passo 3** — Implementa i generatori di contesto in `docgen/main.py`, seguendo il pattern dei generatori `_tests`:
+
+- `_generate_instructions_md_audit(config, module_names)` — per progetti multi-microservizio
+- `_generate_module_context_md_audit(module_name, files, analysis, config)` — contesto per singolo modulo
+- `_generate_context_md_audit(scan_result, analysis, config, ...)` — per progetto singolo
+
+**Passo 4** — Aggiungi i `elif mode == AUDIT:` nei punti di routing dentro `_agent_export()` in `main.py`.
+
+Nessun altro file richiede modifiche: `--mode` viene aggiornato automaticamente leggendo `AVAILABLE_MODES`.
 
 ---
 

@@ -6,9 +6,15 @@ DocGen è uno strumento da riga di comando (CLI) che analizza automaticamente il
 
 ### Cosa produce
 
+DocGen supporta due **modalità operative**:
+
+#### Modalità `docs` (default) — Documentazione
 - **Specifica Funzionale** — requisiti funzionali, casi d'uso, modello dati, regole di business
 - **Specifica Tecnica** — architettura, stack tecnologico, API REST, modello dati tecnico, flussi asincroni, gestione errori
 - **Documento di Architettura di Sistema** — generato solo per progetti multi-microservizio, descrive le integrazioni tra i servizi
+
+#### Modalità `tests` — Analisi di test
+- **Documento di Analisi Test** — un documento Markdown ricco e strutturato che copre: panoramica ambito, aree di rischio, casi di test funzionali, tecnici, di integrazione, negativi, edge case, regressione, precondizioni, dati di test suggeriti, priorità, tracciabilità al codice
 
 I documenti vengono generati in formato **Markdown** e/o **DOCX** (Word).
 
@@ -26,7 +32,7 @@ I documenti vengono generati in formato **Markdown** e/o **DOCX** (Word).
 
 1. **Scansione** — legge tutti i file sorgente del progetto
 2. **Classificazione** — classifica ogni file per categoria (controller, service, entity, business_critical, ecc.) e urgenza (🔴 obbligatorio, 🟡 importante, ⚪ supporto)
-3. **Analisi statica** — estrae endpoint REST, entità/modelli, route frontend, dipendenze, configurazione DB
+3. **Analisi statica** — estrae endpoint REST, entità/modelli, route frontend, dipendenze, configurazione DB; in modalità `tests` estrae anche firme di metodi, regole di validazione, vincoli di sicurezza, enumerazioni, eccezioni, chiamate a sistemi esterni
 4. **Generazione** — produce i documenti tramite un LLM (API Claude) o un agente AI (Copilot, Kilo Code, Claude Code)
 
 ---
@@ -92,6 +98,8 @@ Se mostra l'help con le opzioni disponibili, l'installazione è riuscita.
 
 DocGen offre **3 modalità** di funzionamento.
 
+> **Modalità operativa vs modalità di funzionamento**: il flag `--mode` seleziona *cosa* generare (`docs` o `tests`); i tre paragrafi qui sotto descrivono *come* viene effettuata la generazione (dry-run, agent-export, API diretta). I due assi sono indipendenti.
+
 ---
 
 ### 4.1 Modalità Dry Run (`--dry-run`)
@@ -116,15 +124,31 @@ python3 -m docgen /percorso/al/progetto --dry-run -n "Nome Progetto"
 
 **Quando usarla**: sempre come primo passo, per verificare che DocGen riconosca correttamente il progetto.
 
+> In dry-run puoi anche aggiungere `--mode tests` per vedere le statistiche dell'analisi estesa (firme di metodi, validazioni, sicurezza, eccezioni) prima di procedere.
+
 ---
 
 ### 4.2 Modalità Agent Export (`--agent-export`) ⭐ Consigliata
 
 **Scopo**: genera un pacchetto informativo strutturato che un agente AI (GitHub Copilot, Kilo Code, Claude Code) può usare per generare la documentazione leggendo i file direttamente dal workspace.
 
-**Comando:**
+**Il flag `--mode` determina cosa genera l'agente:**
+
+| `--mode` | Output finale atteso dall'agente |
+|---|---|
+| `docs` (default) | `specifica_funzionale.md` + `specifica_tecnica.md` (+ architettura se multi-servizio) |
+| `tests` | `analisi_test.md` (per microservizio) + `analisi_test_sistema.md` (multi-servizio) |
+
+**Comandi:**
 
 ```bash
+# Documentazione (modalità docs)
+python3 -m docgen /percorso/al/progetto --agent-export --mode docs -n "Nome Progetto"
+
+# Analisi di test (modalità tests)
+python3 -m docgen /percorso/al/progetto --agent-export --mode tests -n "Nome Progetto"
+
+# Senza --mode: DocGen chiede interattivamente (1=docs, 2=tests)
 python3 -m docgen /percorso/al/progetto --agent-export -n "Nome Progetto"
 ```
 
@@ -141,12 +165,12 @@ python3 -m docgen /percorso/al/progetto --agent-export -n "Nome Progetto"
 
 **Costo**: zero (nessuna chiamata API — è l'agente che fa il lavoro).
 
-**Come usarla (passo passo) — progetto singolo:**
+**Come usarla (passo passo) — modalità `docs`, progetto singolo:**
 
 1. Lancia il comando:
 
    ```bash
-   python3 -m docgen /percorso/al/progetto --agent-export -n "Nome Progetto"
+   python3 -m docgen /percorso/al/progetto --agent-export --mode docs -n "Nome Progetto"
    ```
 
 2. Apri il progetto in VS Code (se non lo hai già aperto)
@@ -157,7 +181,7 @@ python3 -m docgen /percorso/al/progetto --agent-export -n "Nome Progetto"
    > Leggi il file `DocGen/docgen_context.md` e segui le istruzioni contenute per generare la documentazione. Salva i documenti nella cartella `DocGen/`. 
 
    3b. Progetto multi-microservizio:
-   > Leggi il file `DocGen/docgen_instrucions.md` e segui le istruzioni contenute per generare la documentazione. Salva i documenti nella cartella `DocGen/`.
+   > Leggi il file `DocGen/docgen_instructions.md` e segui le istruzioni contenute per generare la documentazione. Salva i documenti nella cartella `DocGen/`.
 
 4. L'agente leggerà il contesto, poi leggerà i file sorgente dal workspace e genererà i documenti
 
@@ -173,29 +197,23 @@ python3 -m docgen /percorso/al/progetto --agent-export -n "Nome Progetto"
    python3 -m docgen --cleanup DocGen/
    ```
 
-**Come usarla (passo passo) — progetto multi-microservizio:**
+**Come usarla (passo passo) — modalità `tests`, progetto singolo:**
 
-1. Lancia il comando (DocGen rileva automaticamente i microservizi):
+1. Lancia il comando:
 
    ```bash
-   python3 -m docgen /percorso/al/progetto --agent-export -n "Nome Progetto"
+   python3 -m docgen /percorso/al/progetto --agent-export --mode tests -n "Nome Progetto"
    ```
 
 2. Apri il progetto in VS Code
 
 3. Apri la chat dell'agente e scrivi:
 
-   > Leggi il file `DocGen/docgen_instructions.md` e segui le istruzioni. Per ogni microservizio, leggi il relativo `docgen_context_<nome>.md`. Salva i documenti nella cartella `DocGen/`.
+   > Leggi il file `DocGen/docgen_context.md` e segui le istruzioni per generare il documento di analisi test. Salva `analisi_test.md` nella cartella `DocGen/`.
 
-4. L'agente procederà un microservizio alla volta, poi genererà i documenti d'insieme (architettura, funzionale completa, tecnica completa)
+4. L'agente userà l'analisi estesa (firme di metodi, validazioni, sicurezza, eccezioni, chiamate esterne) per generare il documento di test strutturato
 
-5. Converti i `.md` in `.docx` con template aziendale:
-
-   ```bash
-   python3 -m docgen --render DocGen/*.md --meta PROGETTO="Nome Progetto" CLIENTE="Nome Cliente"
-   ```
-
-6. Rimuovi i file temporanei:
+5. Rimuovi i file temporanei:
 
    ```bash
    python3 -m docgen --cleanup DocGen/
@@ -373,14 +391,16 @@ python3 -m docgen --cleanup DocGen/
 
 ## 7. Workflow consigliato
 
+### Workflow documentazione (`--mode docs`)
+
 1. **Dry run** — verifica che il progetto venga scansionato correttamente:
    ```bash
-   python3 -m docgen /percorso/progetto --dry-run -n "Nome"
+   python3 -m docgen /percorso/progetto --dry-run --mode docs -n "Nome"
    ```
 
 2. **Agent export** — genera il contesto per l'agente:
    ```bash
-   python3 -m docgen /percorso/progetto --agent-export -n "Nome"
+   python3 -m docgen /percorso/progetto --agent-export --mode docs -n "Nome"
    ```
 
 3. **Generazione** — apri VS Code sul progetto e dai all'agente:
@@ -397,6 +417,27 @@ python3 -m docgen --cleanup DocGen/
    ```
 
 6. **Revisione** — controlla i documenti generati e correggi eventuali imprecisioni.
+
+### Workflow analisi test (`--mode tests`)
+
+1. **Dry run** con analisi estesa:
+   ```bash
+   python3 -m docgen /percorso/progetto --dry-run --mode tests -n "Nome"
+   ```
+   Mostra anche le statistiche dell'analisi estesa (firme di metodi, validazioni, sicurezza, eccezioni).
+
+2. **Agent export**:
+   ```bash
+   python3 -m docgen /percorso/progetto --agent-export --mode tests -n "Nome"
+   ```
+
+3. **Generazione** — apri VS Code e dai all'agente:
+   > Leggi `DocGen/docgen_context.md` (o `DocGen/docgen_instructions.md`) e segui le istruzioni per generare il documento di analisi test.
+
+4. **Pulizia**:
+   ```bash
+   python3 -m docgen --cleanup DocGen/
+   ```
 
 ---
 
@@ -423,3 +464,23 @@ Riduci il `--chunk-budget` per creare più chunk più piccoli, oppure usa `--age
 
 ### L'agente non legge tutti i file
 Con `--agent-export`, i file sono raggruppati per urgenza (🔴/🟡/⚪). Chiedi esplicitamente all'agente di leggere i file 🔴 (obbligatori) e business_critical.
+
+---
+
+## 9. Aggiungere una nuova modalità (per sviluppatori)
+
+Le modalità operative sono centralizzate in **`docgen/modes.py`**. Qualsiasi futura estensione (es. audit di sicurezza, impact analysis) parte da lì.
+
+**Passo 1** — Registra la nuova modalità in `docgen/modes.py`:
+
+```python
+AUDIT = "audit"
+AVAILABLE_MODES["audit"] = "Audit di sicurezza (OWASP Top 10)"
+```
+`--mode` del CLI viene aggiornato automaticamente leggendo `AVAILABLE_MODES`.
+
+**Passo 2** — Aggiungi il template istruzioni in `docgen/prompts.py`.
+
+**Passo 3** — Implementa i generatori in `docgen/main.py` seguendo il pattern `_generate_*_tests`. Aggiungi i branch `elif mode == AUDIT:` nel dispatcher di `_agent_export()`.
+
+Nessun altro file richiede modifiche.

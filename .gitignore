@@ -8,3 +8,4 @@ release
 docgen/__pycache__
 .kilo
 tests/__pycache__
+test-project/DocGen/
