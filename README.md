@@ -28,6 +28,7 @@ Output in formato **Markdown** e **Word (.docx)**.
 10. [Stima costi API](#10-stima-costi-api)
 11. [Per sviluppatori](#11-per-sviluppatori)
 12. [Aggiungere una nuova modalità](#12-aggiungere-una-nuova-modalità)
+13. [Changelog](#changelog)
 
 ---
 
@@ -107,7 +108,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 python3 -m docgen /percorso/progetto -n "Nome Progetto"
 ```
 
-Per progetti grandi (3+ microservizi), DocGen chiede se generare documentazione per-servizio o unificata.
+Per progetti con 2+ microservizi, DocGen chiede se generare documentazione per-servizio o unificata.
 
 ### 3.4 — Conversione DOCX con template aziendale
 
@@ -153,7 +154,7 @@ File rimossi: `analisi_statica.md`, `struttura_progetto.txt`, `docgen_context*.m
 | Linguaggio | Framework | Cosa rileva |
 |---|---|---|
 | **Java** | Spring Boot, JPA/Hibernate | Controller, Service, Entity, Repository, endpoint REST, campi JPA, dipendenze Maven |
-| **C#** | ASP.NET Core, EF Core, Razor | Controller `[ApiController]`, DbContext, Entity `[Table]`/`[Key]`, dipendenze NuGet, `appsettings.json` |
+| **C#** | ASP.NET Core, EF Core, MongoDB | Controller `[ApiController]`, DbContext, Entity `[Table]`/`[Key]`/`[BsonElement]`/`[BsonId]`, repository MongoDB (`IMongoCollection`), classi Service, `Startup.cs`/`Program.cs`, `appsettings.json`, `database.json`; progetti **multi-solution** (.sln) rilevati come moduli separati |
 | **TypeScript/JS** | Angular, NestJS, Express | Componenti, servizi, routing (eager + lazy), moduli, dipendenze NPM |
 | **Python** | FastAPI, Flask, Django | Endpoint, modelli, dipendenze |
 | **Altro** | Go, Rust, Ruby, PHP | Estrazione dipendenze base |
@@ -253,7 +254,9 @@ Usa `--dry-run` per la stima. Ordine di grandezza:
 
 ### Funziona con .NET 8 + Angular?
 
-**Sì.** Rileva controller ASP.NET Core (`[ApiController]`, `[HttpGet]`/`[HttpPost]`/...), entità EF Core (`[Table]`, `[Key]`, `DbSet<>`), dipendenze NuGet da `.csproj`, configurazione da `appsettings.json`. Per Angular: componenti, servizi, routing, moduli, dipendenze NPM.
+**Sì.** Rileva controller ASP.NET Core (`[ApiController]`, `[HttpGet]`/`[HttpPost]`/...), entità EF Core (`[Table]`, `[Key]`, `DbSet<>`) e modelli MongoDB (`[BsonElement]`, `[BsonId]`), repository MongoDB (`IMongoCollection`), classi Service, `Startup.cs`/`Program.cs` come config, dipendenze NuGet da `.csproj`, configurazione da `appsettings.json` e `database.json`. Per Angular: componenti, servizi, routing, moduli, dipendenze NPM.
+
+Supporta anche **architetture .NET multi-solution**: se hai più repository ognuno con il proprio `.sln`, DocGen li rileva automaticamente come moduli separati e genera un file di contesto per ciascuno.
 
 ### I miei dati vengono inviati da qualche parte?
 
@@ -339,6 +342,21 @@ AUDIT_DOCUMENT_TEMPLATE = """Produci un documento Markdown con questa struttura:
 **Passo 4** — Aggiungi i `elif mode == AUDIT:` nei punti di routing dentro `_agent_export()` in `main.py`.
 
 Nessun altro file richiede modifiche: `--mode` viene aggiornato automaticamente leggendo `AVAILABLE_MODES`.
+
+---
+
+## Changelog
+
+### v1.0.2 — Supporto .NET Multi-Solution e MongoDB
+
+**Nuove funzionalità:**
+- **Supporto .NET multi-solution**: progetti con più repository ognuno con il proprio `.sln` vengono ora rilevati come moduli separati, producendo un `docgen_context_<modulo>.md` per ciascuno. In precedenza tutti i file finivano in un unico modulo `backend`.
+- **Supporto MongoDB**: rilevamento di entità con attributi `[BsonElement]`/`[BsonId]`, repository con `IMongoCollection`/`IMongoDatabase`, file `database.json` incluso nell'analisi.
+- **Classificazione migliorata per C#**: `Startup.cs` e `Program.cs` classificati come `config`; classi `XxxService` rilevate come `service` (non solo le interfacce).
+- **Revisione cross-service**: nelle istruzioni multi-microservizio è ora incluso un passo esplicito di revisione tra servizi, per aggiornare la documentazione del servizio A dopo aver analizzato il servizio B.
+
+**Fix:**
+- La modalità ibrida multi-microservizio si attiva ora con **2 o più moduli** (era 3), e non richiede più un numero minimo di chunk — necessario per progetti con molti file ma pochi chunk.
 
 ---
 
