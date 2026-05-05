@@ -347,6 +347,15 @@ Nessun altro file richiede modifiche: `--mode` viene aggiornato automaticamente 
 
 ## Changelog
 
+### v1.0.4 — Template documenti completi multi-microservizio
+
+**Nuove funzionalità:**
+- **Template dedicato per `specifica_funzionale_completa.md`**: struttura completa in 9 sezioni (requisiti per area di dominio, flussi end-to-end, sezione sintetica per microservizio, modello dati unificato, regole di business trasversali). L'AI usa i singoli `specifica_funzionale_<modulo>.md` come fonte primaria, producendo un documento organico consegnabile al cliente.
+- **Template dedicato per `specifica_tecnica_completa.md`**: struttura completa in 13 sezioni (API REST aggregate, modello dati complessivo, debito tecnico consolidato, sezione tecnica sintetica per microservizio). Stesso approccio: fonti i singoli doc tecnici, output consegnabile.
+- **Fonte primaria per `architettura_sistema.md`**: le istruzioni indicano esplicitamente all'AI di leggere i singoli `specifica_tecnica_<modulo>.md` e `specifica_funzionale_<modulo>.md` già generati prima di produrre il documento di architettura.
+
+---
+
 ### v1.0.2 — Supporto .NET Multi-Solution e MongoDB
 
 **Nuove funzionalità:**

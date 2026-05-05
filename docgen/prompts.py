@@ -267,6 +267,8 @@ che è composto da più microservizi.
 {service_summaries}
 
 ## Istruzioni
+**Fonte primaria**: leggi i file `specifica_tecnica_<modulo>.md` e `specifica_funzionale_<modulo>.md` già generati per ogni microservizio. Usali come fonte principale — contengono informazioni più complete e già elaborate rispetto al contesto grezzo. Integra con i file sorgente solo se hai bisogno di dettagli non coperti dai documenti.
+
 Produci un documento Markdown professionale con ESATTAMENTE questa struttura.
 L'obiettivo è descrivere come i microservizi collaborano tra loro, NON ripetere i dettagli interni di ciascuno.
 
@@ -329,6 +331,213 @@ Variabili d'ambiente, config server, service discovery.
 Tabella che mappa le funzionalità business ai microservizi che le implementano.
 
 IMPORTANTE: Se una sezione non ha dati sufficienti, scrivi "Da completare — informazioni non rilevabili dal codice sorgente" e NON inventare contenuti. Concentrati sulle INTEGRAZIONI tra servizi, non sui dettagli interni.
+"""
+
+
+COMPLETE_FUNCTIONAL_DOC_INSTRUCTIONS = """
+## Template: Specifica Funzionale Completa (documento di sistema)
+
+**Fonte primaria**: leggi TUTTI i file `specifica_funzionale_<modulo>.md` già generati per i singoli microservizi. Usali come unica fonte di verità — non reinventare informazioni già documentate.
+
+**Obiettivo**: produrre un documento unico, organico e consegnabile al cliente. Non è un copia-incolla dei singoli documenti: è una sintesi ragionata che:
+- Unifica i requisiti per area di dominio (non per microservizio)
+- Descrive i flussi funzionali end-to-end che attraversano più servizi
+- Fornisce per ogni microservizio una sezione sintetica con responsabilità e requisiti chiave
+- I singoli `specifica_funzionale_<modulo>.md` rimangono allegati di dettaglio
+
+Produci un documento Markdown professionale con ESATTAMENTE questa struttura:
+
+# Specifica Funzionale — {project_name}
+
+## 1. Introduzione
+### 1.1 Scopo del documento
+Indica che questo è il documento funzionale di sistema. I dettagli per singolo microservizio sono nei file allegati `specifica_funzionale_<modulo>.md`.
+### 1.2 Ambito del sistema
+Descrizione sintetica di cosa fa il sistema nel suo insieme.
+### 1.3 Riferimenti
+Elenco dei file allegati (specifica_funzionale_<modulo>.md per ciascun microservizio).
+### 1.4 Glossario
+Termini di dominio comuni a tutti i microservizi.
+
+## 2. Panoramica del sistema
+### 2.1 Architettura funzionale
+Descrizione del sistema come insieme: cosa fa, per chi, in quale contesto operativo. Includi un diagramma Mermaid (flowchart) che mostri i macroblocchi funzionali e i flussi tra di essi.
+### 2.2 Attori del sistema
+Tabella degli attori (utenti, sistemi esterni) con ruolo e interazioni principali.
+### 2.3 Mappa microservizi-responsabilità
+| Microservizio | Dominio funzionale | Responsabilità principale |
+|---|---|---|
+
+## 3. Requisiti funzionali per area di dominio
+Raggruppa i requisiti per AREA DI DOMINIO (non per microservizio). Ogni requisito ha un codice univoco:
+
+**[FUN-XXX] Nome requisito**
+- **Descrizione**: cosa deve fare il sistema
+- **Microservizio responsabile**: quale servizio lo implementa
+- **Attore**: chi avvia l'azione
+- **Priorità**: Alta / Media / Bassa
+
+Numera progressivamente: FUN-001, FUN-002, ecc.
+
+## 4. Flussi operativi end-to-end
+Descrivi i 3-7 flussi principali che attraversano più microservizi. Per ogni flusso:
+### FE-001: [Nome flusso]
+- **Descrizione**: cosa fa l'utente / quale processo si attiva
+- **Microservizi coinvolti**: in ordine di coinvolgimento
+- **Flusso**: descrizione passo-passo di come i servizi collaborano
+- **Diagramma**: includi un Mermaid sequenceDiagram per i flussi più importanti
+
+## 5. Dettaglio per microservizio
+Per ogni microservizio, una sezione sintetica. Non ripetere tutto il contenuto del doc singolo — sintetizza i punti chiave.
+
+### 5.x [Nome microservizio]
+- **Responsabilità**: 2-3 frasi
+- **Funzionalità principali**: lista puntata delle feature più importanti
+- **Casi d'uso principali**: i 3-5 casi d'uso più significativi (titolo + descrizione breve)
+- **Entità gestite**: nomi delle entità principali
+- **Regole di business chiave**: le regole più importanti (max 5)
+- **Documento di dettaglio**: `specifica_funzionale_<modulo>.md`
+
+## 6. Modello dati funzionale unificato
+### 6.1 Entità principali del sistema
+Descrivi le entità dal punto di vista funzionale (non tecnico). Includi un diagramma Mermaid erDiagram con le entità principali di tutti i servizi e le relazioni logiche tra esse.
+### 6.2 Relazioni cross-service
+Come le entità di servizi diversi si collegano (ID condivisi, dati propagati, ecc.).
+
+## 7. Regole di business trasversali
+Regole che impattano più microservizi o che definiscono comportamenti di sistema:
+### RB-XXX: [Nome regola]
+- **Descrizione**: cosa impone la regola
+- **Servizi coinvolti**: quali microservizi implementano o rispettano questa regola
+- **Impatto**: cosa succede se violata
+
+## 8. Requisiti non funzionali
+### 8.1 Prestazioni
+### 8.2 Sicurezza e autenticazione
+### 8.3 Disponibilità e resilienza
+### 8.4 Scalabilità
+
+## 9. Appendici
+### 9.1 Matrice funzionalità-microservizi
+Tabella che mappa ogni area funzionale ai microservizi che la implementano:
+| Area funzionale | Microservizi | Note |
+|---|---|---|
+### 9.2 Documenti di dettaglio
+Elenco dei documenti allegati per approfondimento per-servizio.
+
+IMPORTANTE: Se una sezione non ha dati sufficienti dai documenti singoli, scrivi "Da completare" e NON inventare. Usa i dati reali estratti dai documenti dei singoli microservizi.
+"""
+
+
+COMPLETE_TECHNICAL_DOC_INSTRUCTIONS = """
+## Template: Specifica Tecnica Completa (documento di sistema)
+
+**Fonte primaria**: leggi TUTTI i file `specifica_tecnica_<modulo>.md` già generati per i singoli microservizi. Usali come unica fonte di verità.
+
+**Obiettivo**: produrre un documento tecnico unico, organico e consegnabile. Sintetizza il contenuto tecnico di tutti i servizi, unifica le viste trasversali (architettura, stack, sicurezza, deployment), e fornisce per ogni microservizio una sezione tecnica sintetica. I singoli `specifica_tecnica_<modulo>.md` rimangono allegati di dettaglio.
+
+Produci un documento Markdown professionale con ESATTAMENTE questa struttura:
+
+# Specifica Tecnica — {project_name}
+
+## 1. Introduzione
+### 1.1 Scopo del documento
+Indica che questo è il documento tecnico di sistema. I dettagli per singolo microservizio sono negli allegati.
+### 1.2 Ambito del sistema
+### 1.3 Riferimenti
+Elenco dei file allegati (specifica_tecnica_<modulo>.md per ciascun microservizio).
+### 1.4 Glossario tecnico
+
+## 2. Architettura del sistema
+### 2.1 Architettura complessiva
+Descrivi l'architettura del sistema nel suo insieme. Includi un diagramma Mermaid (flowchart o C4) che mostri tutti i microservizi, le comunicazioni tra essi, i database, i client e i sistemi esterni.
+### 2.2 Pattern architetturali
+Pattern comuni a tutto il sistema (microservizi, REST, event-driven, ecc.).
+### 2.3 Mappa microservizi
+| Microservizio | Tecnologia | Database | Porta/Path | Pattern |
+|---|---|---|---|---|
+
+## 3. Stack tecnologico unificato
+Elenca lo stack dell'intero sistema (unifica le tecnologie dei singoli servizi, rimuovi duplicati):
+| Tecnologia | Versione | Usata da | Scopo |
+|---|---|---|---|
+
+## 4. Dettaglio per microservizio
+Per ogni microservizio, una sezione tecnica sintetica. Non ripetere tutto il doc singolo.
+
+### 4.x [Nome microservizio]
+- **Responsabilità tecnica**: 2-3 frasi
+- **API REST principali**: tabella con i 5-10 endpoint più significativi
+  | Metodo | Endpoint | Descrizione |
+  |---|---|---|
+- **Modello dati**: entità principali e relazioni (descrittivo o mini-diagramma Mermaid)
+- **Pattern implementativi**: pattern specifici di questo servizio (repository, factory, ecc.)
+- **Configurazione chiave**: variabili d'ambiente critiche, database connection
+- **Osservazioni tecniche**: criticità, debito tecnico, particolarità
+- **Documento di dettaglio**: `specifica_tecnica_<modulo>.md`
+
+## 5. Integrazioni e comunicazioni cross-service
+### 5.1 Matrice di dipendenza
+| Servizio chiamante | Servizio chiamato | Tipo | Endpoint/Topic |
+|---|---|---|---|
+### 5.2 Pattern di comunicazione
+### 5.3 Autenticazione e sicurezza cross-service
+Come i servizi si autenticano tra loro (JWT, API key, mTLS, ecc.).
+
+## 6. API REST di sistema
+Tabella completa di TUTTI gli endpoint esposti da tutti i microservizi:
+| Microservizio | Metodo | Endpoint | Descrizione |
+|---|---|---|---|
+
+## 7. Modello dati complessivo
+### 7.1 Database per servizio
+| Microservizio | Tipo DB | Database/Schema | Entità principali |
+|---|---|---|---|
+### 7.2 Entità condivise o dipendenze cross-data
+ID referenziati tra servizi, entità replicate, eventual consistency.
+### 7.3 Diagramma ER di sistema
+Mermaid erDiagram con le entità principali di tutti i servizi.
+
+## 8. Deployment e infrastruttura
+### 8.1 Architettura di deployment
+Diagramma Mermaid del deployment (container, orchestrazione, rete).
+### 8.2 Containerizzazione
+Pattern Dockerfile, immagini base, configurazioni comuni.
+### 8.3 CI/CD
+Pipeline di build/deploy per i microservizi.
+### 8.4 Configurazione condivisa
+Variabili d'ambiente, config server, service discovery.
+
+## 9. Sicurezza
+### 9.1 Strategia di autenticazione
+### 9.2 Autorizzazione e RBAC
+### 9.3 Gestione segreti e credenziali
+### 9.4 Configurazioni potenzialmente critiche
+Riporta le configurazioni di sicurezza rilevanti emerse dai singoli documenti.
+
+## 10. Gestione errori di sistema
+### 10.1 Strategia globale di error handling
+### 10.2 Catalogo errori aggregato
+| Codice | Messaggio | Microservizio | HTTP Status |
+|---|---|---|---|
+
+## 11. Requisiti non funzionali tecnici
+### 11.1 Prestazioni e scalabilità
+### 11.2 Logging e monitoraggio centralizzato
+### 11.3 Testing (unit, integration, e2e)
+
+## 12. Debito tecnico aggregato
+Consolida le osservazioni di debito tecnico di tutti i singoli documenti:
+| Microservizio | Tipo | Descrizione | Priorità |
+|---|---|---|---|
+
+## 13. Appendici
+### 13.1 Struttura del repository
+### 13.2 Script e comandi utili (build, run, test per servizio)
+### 13.3 Documenti di dettaglio
+Elenco dei documenti tecnici allegati per approfondimento per-servizio.
+
+IMPORTANTE: Se una sezione non ha dati sufficienti dai documenti singoli, scrivi "Da completare" e NON inventare. Usa i dati reali estratti dai documenti dei singoli microservizi.
 """
 
 

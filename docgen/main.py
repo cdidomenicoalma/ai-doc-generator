@@ -26,6 +26,7 @@ from .chunker import create_chunks, ChunkPlan
 from .prompts import (
     SYSTEM_PROMPT, ANALYZE_CHUNK, FUNCTIONAL_DOC, TECHNICAL_DOC,
     SYSTEM_ARCHITECTURE_DOC, SERVICE_SUMMARY,
+    COMPLETE_FUNCTIONAL_DOC_INSTRUCTIONS, COMPLETE_TECHNICAL_DOC_INSTRUCTIONS,
     TEST_DOCUMENT_TEMPLATE,
 )
 from .generator import smart_truncate
@@ -856,6 +857,14 @@ def _generate_instructions_md_docs(
     lines.append("Segui ESATTAMENTE questa struttura per il documento di architettura:\n")
     arch_instructions = SYSTEM_ARCHITECTURE_DOC.split("## Istruzioni")[1] if "## Istruzioni" in SYSTEM_ARCHITECTURE_DOC else SYSTEM_ARCHITECTURE_DOC
     lines.append(arch_instructions.strip())
+    lines.append("")
+
+    lines.append("---\n")
+    lines.append(COMPLETE_FUNCTIONAL_DOC_INSTRUCTIONS.strip())
+    lines.append("")
+
+    lines.append("---\n")
+    lines.append(COMPLETE_TECHNICAL_DOC_INSTRUCTIONS.strip())
     lines.append("")
 
     lines.append("---\n")

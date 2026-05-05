@@ -305,7 +305,7 @@ In tutti i casi la skill chiederà sempre all'utente la modalità prima di proce
 
 | Modalità | Cosa genera l'agente |
 |---|---|
-| `docs` | Specifica Funzionale, Specifica Tecnica (+ Architettura di Sistema per progetti multi-servizio) |
+| `docs` | Per ogni microservizio: Specifica Funzionale + Specifica Tecnica. Documenti d'insieme: Architettura di Sistema, Specifica Funzionale Completa, Specifica Tecnica Completa |
 | `tests` | Documento di Analisi Test (casi funzionali, tecnici, integrazione, negativi, edge case, dati di test, priorità) |
 
 La modalità viene sempre chiesta all'utente allo Step 6 e poi passata esplicitamente a DocGen con `--mode docs` o `--mode tests`.
