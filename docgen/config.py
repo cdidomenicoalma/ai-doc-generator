@@ -39,6 +39,7 @@ INCLUDE_FILENAMES: set[str] = {
     "requirements.txt", "requirements-dev.txt", "requirements-prod.txt",
     "Pipfile", "pyproject.toml", "setup.py", "setup.cfg",
     "go.mod", "Cargo.toml", "Gemfile", "composer.json",
+    "database.json",   # Configurazione MongoDB (FIX 5)
 }
 
 # Limiti
@@ -60,7 +61,7 @@ DEFAULT_MAX_TOKENS = 200_000  # Max token contesto modello
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
 # Soglie per rilevamento progetto grande (multi-microservizio)
-LARGE_PROJECT_MIN_MODULES = 3   # Moduli minimi per considerarlo "grande"
+LARGE_PROJECT_MIN_MODULES = 2   # Moduli minimi per considerarlo "grande"
 LARGE_PROJECT_MIN_CHUNKS = 8    # Chunk minimi per proporre la divisione
 
 

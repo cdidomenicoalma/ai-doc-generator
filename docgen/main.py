@@ -186,13 +186,18 @@ def _print_chunk_plan(plan: ChunkPlan, analysis_tokens: int = 0) -> None:
 
 
 def _is_large_project(scan_result: ScanResult, chunk_plan: ChunkPlan) -> bool:
-    """Rileva se il progetto è grande abbastanza per suggerire la modalità ibrida."""
+    """Rileva se il progetto è grande abbastanza per suggerire la modalità ibrida.
+
+    Un progetto è considerato multi-microservizio se ha abbastanza moduli distinti
+    (rilevati via .sln, pom.xml, ecc.) OPPURE se ha molti chunk anche con un solo modulo.
+    """
     n_modules = len(scan_result.modules)
     n_chunks = chunk_plan.total_chunks
-    return (
-        n_modules >= LARGE_PROJECT_MIN_MODULES
-        and n_chunks >= LARGE_PROJECT_MIN_CHUNKS
-    )
+    # Moduli espliciti sufficienti → hybrid indipendentemente dai chunk
+    if n_modules >= LARGE_PROJECT_MIN_MODULES:
+        return True
+    # Singolo modulo ma molto grande → hybrid per volume
+    return n_chunks >= LARGE_PROJECT_MIN_CHUNKS
 
 
 def _create_module_chunk_plans(
@@ -801,8 +806,22 @@ def _generate_instructions_md_docs(
         )
 
     n = len(module_names) + 1
+    other_modules_list = ", ".join(f"`docgen_context_{m}.md`" for m in module_names)
     lines.append(
-        f"{n}. Dopo aver completato tutti i microservizi, genera i documenti d'insieme:\n"
+        f"{n}. **Revisione cross-service**: dopo aver generato la bozza di tutti i microservizi, "
+        f"rileggi i context degli altri moduli ({other_modules_list}) e verifica se emergono informazioni "
+        f"che integrano o correggono i documenti già scritti. "
+        f"In particolare controlla:\n"
+        f"   - Dipendenze tra servizi (un servizio chiama API di un altro)\n"
+        f"   - Entità condivise o ID referenziati cross-service\n"
+        f"   - Flussi operativi che coinvolgono più microservizi in sequenza\n"
+        f"   Se trovi integrazioni rilevanti, aggiorna le sezioni '7. Integrazioni' "
+        f"e '4. Flussi operativi' dei documenti già generati prima di procedere.\n"
+    )
+
+    n += 1
+    lines.append(
+        f"{n}. Dopo la revisione, genera i documenti d'insieme:\n"
         f"   - `architettura_sistema.md` — come i microservizi collaborano, API interne, flussi principali\n"
         f"   - `specifica_funzionale_completa.md` — visione funzionale end-to-end del sistema\n"
         f"   - `specifica_tecnica_completa.md` — visione tecnica end-to-end del sistema\n"

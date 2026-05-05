@@ -511,6 +511,37 @@ def _extract_dotnet_entity(file: ScannedFile) -> JpaEntity | None:
     return JpaEntity(name=name, table=table, fields=fields, file=file.path)
 
 
+def _extract_mongodb_entity(file: ScannedFile) -> JpaEntity | None:
+    """Estrae modelli MongoDB da un file C# (BsonElement, BsonId)."""
+    content = file.content
+
+    class_match = _CS_CLASS_RE.search(content)
+    if not class_match:
+        return None
+    name = class_match.group(1)
+
+    fields: list[str] = []
+    for prop_match in _CS_PROPERTY_RE.finditer(content):
+        prop_type = prop_match.group(1).strip()
+        prop_name = prop_match.group(2)
+        pos = prop_match.start()
+        context = content[max(0, pos - 200):pos]
+        annotations = []
+        if re.search(r'\[BsonId\]', context):
+            annotations.append("[BsonId]")
+        if re.search(r'\[BsonElement\]', context):
+            annotations.append("[BsonElement]")
+        if re.search(r'\[Required', context):
+            annotations.append("[Required]")
+        ann_str = f" {' '.join(annotations)}" if annotations else ""
+        fields.append(f"{prop_type} {prop_name}{ann_str}")
+
+    if not fields:
+        return None
+
+    return JpaEntity(name=name, table="", fields=fields, file=file.path)
+
+
 def _extract_dbcontext_entities(file: ScannedFile) -> list[JpaEntity]:
     """Estrae entità referenziate nel DbContext dal pattern DbSet<Entity>."""
     entities: list[JpaEntity] = []
@@ -987,9 +1018,11 @@ def analyze_project(scan_result: ScanResult) -> ProjectAnalysis:
         if file.category == "controller" and file.extension == ".cs":
             analysis.endpoints.extend(_extract_dotnet_endpoints(file))
 
-        # Entità EF Core (C# con [Table] o [Key])
+        # Entità EF Core o MongoDB (C#)
         if file.category == "entity" and file.extension == ".cs":
             entity = _extract_dotnet_entity(file)
+            if not entity:
+                entity = _extract_mongodb_entity(file)
             if entity and entity.name not in seen_entities:
                 analysis.entities.append(entity)
                 seen_entities.add(entity.name)

@@ -265,6 +265,9 @@ def _classify_file(rel_path: str, extension: str, content: str) -> str:
 
     # C#: controlla attributi ASP.NET e pattern nel contenuto
     if extension == ".cs" and content:
+        # Startup / Program — configurazione applicazione (FIX 4)
+        if basename in ("startup.cs", "program.cs"):
+            return "config"
         # Migrations EF Core
         if "migrations" in lower_path.split(os.sep) or "migrations" in lower_path.split("/"):
             return "migration"
@@ -285,8 +288,17 @@ def _classify_file(rel_path: str, extension: str, content: str) -> str:
         # Entity/Model con EF Core annotation
         if "[Table(" in content or "[Key]" in content:
             return "entity"
+        # Entity/Model MongoDB (BsonElement, BsonId) — FIX 3a
+        if "BsonElement" in content or "BsonId" in content:
+            return "entity"
+        # Repository MongoDB — FIX 3a
+        if "IMongoCollection" in content or "IMongoDatabase" in content:
+            return "repository"
+        # Classi Service (non solo interfacce) — FIX 3a
+        if re.search(r'class\s+\w+Service\b', content):
+            return "service"
 
-    # ── Business-critical detection (cross-language) ──────────────────
+    # ── Business-critical detection(cross-language) ──────────────────
     # Check per nome file/path — PRIMA di JAVA_CATEGORIES per evitare
     # che pattern generici come "util" catturino file come StatusEnum.java.
     # Ma se il path matcha un JAVA_CATEGORIES noto, rispetta quello:
@@ -342,7 +354,15 @@ def _detect_module(rel_path: str, project_root: str) -> str:
         if os.path.isfile(os.path.join(first_dir, "pom.xml")):
             return parts[0]
 
-    # Multi-project .NET: cerca .csproj nella prima directory
+    # Multi-solution .NET: cerca .sln nella prima directory (modulo = repo) — FIX 1
+    if len(parts) > 1:
+        first_dir = os.path.join(project_root, parts[0])
+        if os.path.isdir(first_dir):
+            for f in os.listdir(first_dir):
+                if f.endswith(".sln"):
+                    return parts[0]
+
+    # Multi-project .NET: cerca .csproj nella prima directory (singola solution)
     if len(parts) > 1:
         first_dir = os.path.join(project_root, parts[0])
         if os.path.isdir(first_dir):
