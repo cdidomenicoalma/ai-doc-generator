@@ -198,8 +198,11 @@ Conserva mentalmente il tipo di progetto rilevato (singolo o multi) — ti servi
 **Progetto singolo** (rilevato nello Step 7):
 1. Leggi `DocGen/docgen_context.md`.
 2. Segui ESATTAMENTE il piano di lavoro descritto nel file.
-3. Leggi i file sorgente indicati nel contesto.
-4. Genera tutti i documenti Markdown previsti.
+3. Leggi i file sorgente indicati nel contesto, rispettando la priorità:
+   - 🔴 Obbligatori: leggili SEMPRE
+   - 🟡 Importanti: leggili se servono dettagli su entità, configurazioni o regole di business
+   - ⚪ Supporto: leggili solo se hai bisogno di contesto aggiuntivo
+4. Genera tutti i documenti Markdown previsti seguendo la struttura indicata nel file di contesto.
 5. Salva gli output nella cartella `DocGen/`.
 
 **Progetto multi-microservizio** (rilevato nello Step 7):
@@ -208,6 +211,22 @@ Conserva mentalmente il tipo di progetto rilevato (singolo o multi) — ti servi
 3. Per ogni microservizio, leggi il relativo `DocGen/docgen_context_<nome>.md`.
 4. Genera tutti i documenti Markdown previsti (per-servizio + documenti d'insieme).
 5. Salva gli output nelle cartelle indicate da DocGen.
+
+### Regole di qualità per la generazione
+
+- **Sezioni senza dati**: quando non hai informazioni sufficienti per una sezione, scrivi:
+  `> ⚠️ Da completare — informazioni non rilevabili dal codice sorgente in questa fase.`
+  NON inventare contenuto.
+
+- **Revisione finale obbligatoria**: dopo aver completato tutti i documenti, esegui una revisione:
+  1. Torna su ogni sezione marcata `⚠️ Da completare` e verifica se hai trovato le informazioni leggendo altri file del progetto. Se sì, completa la sezione.
+  2. Verifica la coerenza tra Specifica Funzionale e Specifica Tecnica (endpoint API↔casi d'uso, entità ER↔modello funzionale, ruoli↔attori).
+  3. Per i progetti multi-microservizio, verifica che l'Architettura di Sistema sia coerente con le specifiche per-servizio.
+  4. Controlla la sintassi Mermaid di tutti i diagrammi.
+
+- **Diagrammi Mermaid**: ogni documento deve includere i diagrammi previsti dalla struttura. Usa sempre sintassi standard e verifica che siano renderizzabili.
+
+- **Non saltare sezioni**: anche se una sezione ha solo il marker `⚠️ Da completare`, includila nel documento — serve come traccia per completamento futuro.
 
 ---
 
@@ -259,6 +278,8 @@ IMPORTANTE:
 - Usa `python3` quando disponibile; in caso contrario usa `python`.
 - Cleanup di default: attivo.
 - Render di default: disattivo.
+- Non inventare contenuto: usa il marker `⚠️ Da completare` per le sezioni senza dati.
+- Esegui sempre la revisione finale dopo aver generato tutti i documenti.
 
 ---
 

@@ -1052,10 +1052,11 @@ class TestPrompts(unittest.TestCase):
         self.assertIn("{module_analyses}", TECHNICAL_DOC)
 
     def test_analyze_chunk_format(self):
-        from docgen.prompts import ANALYZE_CHUNK
-        formatted = ANALYZE_CHUNK.format(
+        from docgen.prompts import ANALYZE_CHUNK, _format_prompt
+        formatted = _format_prompt(ANALYZE_CHUNK,
             project_name="Test",
             static_analysis="nessuna",
+            language_hint="Java | Spring Boot",
             chunk_content="codice test",
         )
         self.assertIn("Test", formatted)
@@ -1195,10 +1196,13 @@ class TestExportPrompts(unittest.TestCase):
         sys_content = (prompts_dir / "00_SYSTEM_PROMPT.md").read_text()
         self.assertIn("analista software", sys_content)
 
-        # Verifica contenuto funzionale contiene placeholder
+        # Verifica contenuto funzionale contiene placeholder e nome progetto
         func_content = (prompts_dir / "02_SPECIFICA_FUNZIONALE.md").read_text()
         self.assertIn("[INSERISCI QUI", func_content)
         self.assertIn("Test Project", func_content)
+        # Verifica che il prompt funzionale contenga le sezioni chiave del nuovo template
+        self.assertIn("Matrice CRUD", func_content)
+        self.assertIn("FASE DI REVISIONE FINALE", func_content)
 
     def test_export_prompts_unified_chunk_contains_code(self):
         """Verifica che i prompt di chunk contengano il codice sorgente."""
@@ -1225,6 +1229,8 @@ class TestExportPrompts(unittest.TestCase):
         # Deve contenere codice sorgente effettivo
         self.assertIn("Modulo:", content)
         self.assertIn("Token stimati:", content)
+        # Deve contenere il language_hint
+        self.assertIn("Linguaggi:", content)
 
     def tearDown(self):
         """Pulisce la directory DocGen creata dai test."""
@@ -1274,10 +1280,11 @@ class TestEndToEnd(unittest.TestCase):
 
         # 5. Verify summary is usable in prompts
         summary = analysis.summary_text()
-        from docgen.prompts import ANALYZE_CHUNK
-        prompt = ANALYZE_CHUNK.format(
+        from docgen.prompts import ANALYZE_CHUNK, _format_prompt
+        prompt = _format_prompt(ANALYZE_CHUNK,
             project_name="Test",
             static_analysis=summary,
+            language_hint="Java | Spring Boot",
             chunk_content=plan.chunks[0].to_text(),
         )
         self.assertIsInstance(prompt, str)
@@ -1366,9 +1373,11 @@ class TestHybridDetection(unittest.TestCase):
                     priority="media",
                     size_bytes=1000,
                     module=mod,
+                    service=mod,
                     content="public class Src" + str(i) + " {}",
                 ))
         result.modules = modules
+        result.services = modules
         return result
 
     def test_is_large_project_true(self):
@@ -1405,9 +1414,11 @@ class TestCreateModuleChunkPlans(unittest.TestCase):
                     priority="alta",
                     size_bytes=content_size,
                     module=mod,
+                    service=mod,
                     content="x" * content_size,
                 ))
         result.modules = modules
+        result.services = modules
         return result
 
     def test_creates_plan_per_module(self):
@@ -1983,8 +1994,9 @@ class TestAgentExport(unittest.TestCase):
         self.assertIn("Statistiche", md)
         self.assertIn("File classificati per urgenza", md)
         self.assertIn("Istruzioni per la generazione", md)
-        self.assertIn("Template: Specifica Funzionale", md)
-        self.assertIn("Template: Specifica Tecnica", md)
+        self.assertIn("Struttura documenti da generare", md)
+        self.assertIn("Specifica Funzionale", md)
+        self.assertIn("Specifica Tecnica", md)
 
     def test_context_md_contains_endpoints(self):
         from docgen.main import _generate_context_md
@@ -2053,10 +2065,198 @@ class TestAgentExport(unittest.TestCase):
         from docgen.main import _generate_context_md, _create_module_chunk_plans
         module_plans = _create_module_chunk_plans(self.scan_result, self.config)
         md = _generate_context_md(self.scan_result, self.analysis, self.config, True, module_plans)
-        self.assertIn("Template: Architettura di Sistema", md)
+        self.assertIn("Architettura di Sistema", md)
         self.assertIn("specifica_funzionale_completa.md", md)
         self.assertIn("specifica_tecnica_completa.md", md)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Test _detect_service_and_module — copertura build system
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestDetectServiceAndModule(unittest.TestCase):
+    """Verifica che _detect_service_and_module gestisca correttamente
+    tutti i build system supportati: Maven, Gradle, Ant, .NET, NPM."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _make_dir(self, *parts):
+        d = os.path.join(self.tmp, *parts)
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def _touch(self, *parts):
+        p = os.path.join(self.tmp, *parts)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, 'w').close()
+        return p
+
+    def _rel(self, *parts):
+        return os.path.join(*parts)
+
+    # ── Maven ──────────────────────────────────────────────────────────
+
+    def test_maven_flat(self):
+        """administration-api/pom.xml → service=administration-api, module=administration-api"""
+        from docgen.scanner import _detect_service_and_module
+        self._touch("administration-api", "pom.xml")
+        s, m = _detect_service_and_module(self._rel("administration-api", "src", "Foo.java"), self.tmp)
+        self.assertEqual(s, "administration-api")
+        self.assertEqual(m, "administration-api")
+
+    def test_maven_multimodule(self):
+        """administration-api/core/pom.xml → service=administration-api, module=administration-api/core"""
+        from docgen.scanner import _detect_service_and_module
+        self._touch("administration-api", "pom.xml")
+        self._touch("administration-api", "core", "pom.xml")
+        s, m = _detect_service_and_module(self._rel("administration-api", "core", "src", "Foo.java"), self.tmp)
+        self.assertEqual(s, "administration-api")
+        self.assertEqual(m, "administration-api/core")
+
+    def test_maven_multimodule_root_files(self):
+        """File alla radice del parent Maven → service=administration-api, module=administration-api"""
+        from docgen.scanner import _detect_service_and_module
+        self._touch("administration-api", "pom.xml")
+        self._touch("administration-api", "core", "pom.xml")
+        # File direttamente in administration-api/ (es. pom.xml stesso)
+        s, m = _detect_service_and_module(self._rel("administration-api", "pom.xml"), self.tmp)
+        self.assertEqual(s, "administration-api")
+        self.assertEqual(m, "administration-api")
+
+    # ── Gradle ─────────────────────────────────────────────────────────
+
+    def test_gradle_flat(self):
+        """auth-service/build.gradle → service=auth-service, module=auth-service"""
+        from docgen.scanner import _detect_service_and_module
+        self._touch("auth-service", "build.gradle")
+        s, m = _detect_service_and_module(self._rel("auth-service", "src", "Foo.java"), self.tmp)
+        self.assertEqual(s, "auth-service")
+        self.assertEqual(m, "auth-service")
+
+    def test_gradle_kotlin_dsl(self):
+        """notification-service/build.gradle.kts → service=notification-service"""
+        from docgen.scanner import _detect_service_and_module
+        self._touch("notification-service", "build.gradle.kts")
+        s, m = _detect_service_and_module(self._rel("notification-service", "src", "Foo.java"), self.tmp)
+        self.assertEqual(s, "notification-service")
+        self.assertEqual(m, "notification-service")
+
+    def test_gradle_multimodule(self):
+        """reporting-service/settings.gradle + reporting-service/core/build.gradle → sotto-modulo"""
+        from docgen.scanner import _detect_service_and_module
+        self._touch("reporting-service", "settings.gradle")
+        self._touch("reporting-service", "core", "build.gradle")
+        s, m = _detect_service_and_module(self._rel("reporting-service", "core", "src", "Foo.java"), self.tmp)
+        self.assertEqual(s, "reporting-service")
+        self.assertEqual(m, "reporting-service/core")
+
+    def test_gradle_settings_only(self):
+        """Solo settings.gradle.kts → riconosciuto come Gradle"""
+        from docgen.scanner import _detect_service_and_module
+        self._touch("batch-service", "settings.gradle.kts")
+        s, m = _detect_service_and_module(self._rel("batch-service", "src", "Foo.java"), self.tmp)
+        self.assertEqual(s, "batch-service")
+        self.assertEqual(m, "batch-service")
+
+    # ── Ant ────────────────────────────────────────────────────────────
+
+    def test_ant_flat(self):
+        """legacy-service/build.xml → service=legacy-service"""
+        from docgen.scanner import _detect_service_and_module
+        self._touch("legacy-service", "build.xml")
+        s, m = _detect_service_and_module(self._rel("legacy-service", "src", "Foo.java"), self.tmp)
+        self.assertEqual(s, "legacy-service")
+        self.assertEqual(m, "legacy-service")
+
+    def test_ant_multimodule(self):
+        """legacy-service/build.xml + legacy-service/core/build.xml → sotto-modulo"""
+        from docgen.scanner import _detect_service_and_module
+        self._touch("legacy-service", "build.xml")
+        self._touch("legacy-service", "core", "build.xml")
+        s, m = _detect_service_and_module(self._rel("legacy-service", "core", "src", "Foo.java"), self.tmp)
+        self.assertEqual(s, "legacy-service")
+        self.assertEqual(m, "legacy-service/core")
+
+    # ── .NET ───────────────────────────────────────────────────────────
+
+    def test_dotnet_csproj(self):
+        """Administration.Api/Administration.Api.csproj → service=Administration.Api"""
+        from docgen.scanner import _detect_service_and_module
+        self._touch("Administration.Api", "Administration.Api.csproj")
+        s, m = _detect_service_and_module(self._rel("Administration.Api", "Controllers", "UsersController.cs"), self.tmp)
+        self.assertEqual(s, "Administration.Api")
+        self.assertEqual(m, "Administration.Api")
+
+    def test_dotnet_multiple_services(self):
+        """Due servizi .NET distinti → service diversi"""
+        from docgen.scanner import _detect_service_and_module
+        self._touch("Auth.Service", "Auth.Service.csproj")
+        self._touch("Notification.Service", "Notification.Service.csproj")
+        s1, _ = _detect_service_and_module(self._rel("Auth.Service", "Controllers", "AuthController.cs"), self.tmp)
+        s2, _ = _detect_service_and_module(self._rel("Notification.Service", "Services", "EmailService.cs"), self.tmp)
+        self.assertEqual(s1, "Auth.Service")
+        self.assertEqual(s2, "Notification.Service")
+        self.assertNotEqual(s1, s2)
+
+    # ── NPM/Node ───────────────────────────────────────────────────────
+
+    def test_npm_service(self):
+        """gateway-service/package.json → service=gateway-service"""
+        from docgen.scanner import _detect_service_and_module
+        self._touch("gateway-service", "package.json")
+        s, m = _detect_service_and_module(self._rel("gateway-service", "src", "app.ts"), self.tmp)
+        self.assertEqual(s, "gateway-service")
+        self.assertEqual(m, "gateway-service")
+
+    def test_npm_monorepo_nx(self):
+        """monorepo/apps/api/package.json → service=monorepo, module=monorepo/api"""
+        from docgen.scanner import _detect_service_and_module
+        self._touch("monorepo", "package.json")
+        self._touch("monorepo", "apps", "api", "package.json")
+        s, m = _detect_service_and_module(self._rel("monorepo", "apps", "api", "src", "main.ts"), self.tmp)
+        self.assertEqual(s, "monorepo")
+        self.assertEqual(m, "monorepo/api")
+
+    # ── Alias espliciti ────────────────────────────────────────────────
+
+    def test_explicit_backend_alias(self):
+        from docgen.scanner import _detect_service_and_module
+        s, m = _detect_service_and_module(self._rel("backend", "src", "Foo.java"), self.tmp)
+        self.assertEqual(s, "backend")
+        self.assertEqual(m, "backend")
+
+    def test_explicit_frontend_alias(self):
+        from docgen.scanner import _detect_service_and_module
+        s, m = _detect_service_and_module(self._rel("frontend", "src", "app.ts"), self.tmp)
+        self.assertEqual(s, "frontend")
+        self.assertEqual(m, "frontend")
+
+    # ── Fallback ───────────────────────────────────────────────────────
+
+    def test_unknown_service_with_directory(self):
+        """Servizio senza build file riconoscibile → usa il nome della directory"""
+        from docgen.scanner import _detect_service_and_module
+        self._make_dir("my-custom-service", "src")
+        s, m = _detect_service_and_module(self._rel("my-custom-service", "src", "main.py"), self.tmp)
+        self.assertEqual(s, "my-custom-service")
+        self.assertEqual(m, "my-custom-service")
+
+    def test_multiple_services_no_build_files(self):
+        """Più servizi senza build file → ognuno riconosciuto come service distinto"""
+        from docgen.scanner import _detect_service_and_module
+        self._make_dir("service-a", "src")
+        self._make_dir("service-b", "src")
+        s1, _ = _detect_service_and_module(self._rel("service-a", "src", "main.py"), self.tmp)
+        s2, _ = _detect_service_and_module(self._rel("service-b", "src", "main.py"), self.tmp)
+        self.assertEqual(s1, "service-a")
+        self.assertEqual(s2, "service-b")
+        self.assertNotEqual(s1, s2)

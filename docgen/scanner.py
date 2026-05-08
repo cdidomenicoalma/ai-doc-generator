@@ -172,7 +172,8 @@ class ScannedFile:
     priority: str        # alta, media, bassa
     size_bytes: int      # Dimensione in byte
     content: str = ""    # Contenuto (eventualmente troncato)
-    module: str = ""     # Modulo logico (backend, frontend, ecc.)
+    module: str = ""     # Modulo logico (sotto-modulo Maven, es. "core", "web")
+    service: str = ""    # Microservizio di appartenenza (es. "administration-api", "frontend")
     truncated: bool = False
 
 
@@ -181,7 +182,8 @@ class ScanResult:
     """Risultato completo della scansione."""
 
     files: list[ScannedFile] = field(default_factory=list)
-    modules: list[str] = field(default_factory=list)
+    modules: list[str] = field(default_factory=list)   # sotto-moduli (usati internamente per chunking)
+    services: list[str] = field(default_factory=list)  # microservizi (usati per hybrid detection)
     skipped_count: int = 0
     error_count: int = 0
     total_chars: int = 0
@@ -202,10 +204,17 @@ class ScanResult:
         return result
 
     def files_by_module(self) -> dict[str, list[ScannedFile]]:
-        """Raggruppa file per modulo."""
+        """Raggruppa file per modulo (sotto-modulo Maven o equivalente)."""
         result: dict[str, list[ScannedFile]] = {}
         for f in self.files:
             result.setdefault(f.module or "root", []).append(f)
+        return result
+
+    def files_by_service(self) -> dict[str, list[ScannedFile]]:
+        """Raggruppa file per microservizio (primo livello directory)."""
+        result: dict[str, list[ScannedFile]] = {}
+        for f in self.files:
+            result.setdefault(f.service or f.module or "root", []).append(f)
         return result
 
     def top_extensions(self, n: int = 10) -> list[tuple[str, int]]:
@@ -317,49 +326,133 @@ def _classify_file(rel_path: str, extension: str, content: str) -> str:
     return "altro"
 
 
-def _detect_module(rel_path: str, project_root: str) -> str:
-    """Rileva il modulo logico di un file."""
+def _detect_service_and_module(rel_path: str, project_root: str) -> tuple[str, str]:
+    """Rileva il microservizio e il sotto-modulo logico di un file.
+
+    Ritorna (service, module) dove:
+    - service = microservizio di appartenenza (primo livello, es. "administration-api")
+    - module  = sotto-modulo interno (es. "administration-api/core" per Maven multi-modulo,
+                oppure uguale a service se non ci sono sotto-moduli)
+
+    Supporta: Maven, Gradle (single/multi-module), Ant, .NET (csproj/sln),
+              NPM/Node, strutture esplicite backend/frontend.
+
+    La distinzione è fondamentale per la modalità hybrid:
+    - is_hybrid si basa sul numero di SERVICE (microservizi distinti)
+    - il chunking si basa sui MODULE (per distribuire il carico token)
+    - i documenti generati sono uno per SERVICE, non uno per MODULE
+    """
     parts = Path(rel_path).parts
 
     if not parts:
-        return "root"
+        return "root", "root"
 
     first = parts[0].lower()
 
-    # Struttura esplicita backend/frontend
-    if first in ("backend", "server", "api", "back-end"):
-        return "backend"
-    if first in ("frontend", "client", "webapp", "web", "front-end", "ui"):
-        return "frontend"
-    if first in ("infrastructure", "infra", "deploy", "devops"):
-        return "infrastructure"
-    if first in ("shared", "common", "lib", "libs"):
-        return "shared"
+    # ── 1. Nomi canonici espliciti ────────────────────────────────────────
+    SERVICE_ALIASES = {
+        "backend": "backend", "server": "backend", "api": "backend", "back-end": "backend",
+        "frontend": "frontend", "client": "frontend", "webapp": "frontend",
+        "web": "frontend", "front-end": "frontend", "ui": "frontend",
+        "infrastructure": "infrastructure", "infra": "infrastructure",
+        "deploy": "infrastructure", "devops": "infrastructure",
+        "shared": "shared", "common": "shared", "lib": "shared", "libs": "shared",
+    }
+    if first in SERVICE_ALIASES:
+        service = SERVICE_ALIASES[first]
+        return service, service
 
-    # Multi-module Maven: cerca pom.xml nella prima directory
-    if len(parts) > 1:
-        first_dir = os.path.join(project_root, parts[0])
-        if os.path.isfile(os.path.join(first_dir, "pom.xml")):
-            return parts[0]
+    if len(parts) <= 1:
+        # File alla radice del progetto
+        return "root", "root"
 
-    # Multi-project .NET: cerca .csproj nella prima directory
-    if len(parts) > 1:
-        first_dir = os.path.join(project_root, parts[0])
-        if os.path.isdir(first_dir):
-            for f in os.listdir(first_dir):
-                if f.endswith(".csproj"):
-                    return parts[0]
+    first_dir = os.path.join(project_root, parts[0])
 
-    # Heuristica basata su estensione
+    # ── 2. Maven multi-modulo: pom.xml nella prima directory ──────────────
+    if os.path.isfile(os.path.join(first_dir, "pom.xml")):
+        service = parts[0]
+        if len(parts) > 2:
+            second_dir = os.path.join(first_dir, parts[1])
+            if os.path.isdir(second_dir) and os.path.isfile(os.path.join(second_dir, "pom.xml")):
+                # Struttura parent/module/src/... → module = "service/submodule"
+                return service, f"{parts[0]}/{parts[1]}"
+        return service, service
+
+    # ── 3. Gradle multi-modulo: build.gradle o settings.gradle nella prima dir ──
+    if (os.path.isfile(os.path.join(first_dir, "build.gradle"))
+            or os.path.isfile(os.path.join(first_dir, "build.gradle.kts"))
+            or os.path.isfile(os.path.join(first_dir, "settings.gradle"))
+            or os.path.isfile(os.path.join(first_dir, "settings.gradle.kts"))):
+        service = parts[0]
+        if len(parts) > 2:
+            second_dir = os.path.join(first_dir, parts[1])
+            if os.path.isdir(second_dir) and (
+                os.path.isfile(os.path.join(second_dir, "build.gradle"))
+                or os.path.isfile(os.path.join(second_dir, "build.gradle.kts"))
+            ):
+                # Struttura gradle multi-modulo: service/submodule/src/...
+                return service, f"{parts[0]}/{parts[1]}"
+        return service, service
+
+    # ── 4. Ant: build.xml nella prima directory ───────────────────────────
+    if os.path.isfile(os.path.join(first_dir, "build.xml")):
+        service = parts[0]
+        # Ant non ha una convenzione standard per sotto-moduli,
+        # ma se ci sono sotto-dir con build.xml propri le trattiamo come sotto-moduli
+        if len(parts) > 2:
+            second_dir = os.path.join(first_dir, parts[1])
+            if os.path.isdir(second_dir) and os.path.isfile(os.path.join(second_dir, "build.xml")):
+                return service, f"{parts[0]}/{parts[1]}"
+        return service, service
+
+    # ── 5. .NET: .csproj nella prima directory ────────────────────────────
+    if os.path.isdir(first_dir):
+        for fname in os.listdir(first_dir):
+            if fname.endswith(".csproj"):
+                return parts[0], parts[0]
+
+    # ── 6. NPM/Node: package.json nella prima directory ───────────────────
+    # Gestisce sia frontend (Angular, React, Vue) che backend (NestJS, Express)
+    if os.path.isfile(os.path.join(first_dir, "package.json")):
+        service = parts[0]
+        # Controlla se è un monorepo con sotto-pacchetti (es. Nx, Lerna)
+        # Struttura: service/packages/subpackage/package.json
+        if len(parts) > 3 and parts[1].lower() in ("packages", "apps", "libs", "services"):
+            second_dir = os.path.join(first_dir, parts[1], parts[2])
+            if os.path.isdir(second_dir) and os.path.isfile(os.path.join(second_dir, "package.json")):
+                return service, f"{parts[0]}/{parts[2]}"
+        return service, service
+
+    # ── 7. Heuristica basata su estensione (fallback) ─────────────────────
+    # A questo punto non abbiamo trovato un build file riconoscibile.
+    # Usiamo l'estensione come hint, ma manteniamo parts[0] come service
+    # se la struttura è chiaramente multi-directory (progetto multi-servizio).
     ext = os.path.splitext(rel_path)[1]
-    if ext == ".java":
-        return "backend"
-    if ext == ".cs":
-        return "backend"
-    if ext in (".ts", ".html", ".scss", ".css") and "src/app" in rel_path.replace("\\", "/"):
-        return "frontend"
 
-    return "root"
+    # Se la prima directory esiste ed è una directory reale (non un alias),
+    # la trattiamo come service name indipendentemente dall'estensione.
+    # Questo gestisce microservizi con build system non standard o senza build file.
+    if os.path.isdir(first_dir) and len(parts) > 1:
+        return parts[0], parts[0]
+
+    # Fallback finale per file alla radice senza struttura riconoscibile
+    if ext == ".java":
+        return "backend", "backend"
+    if ext == ".cs":
+        return "backend", "backend"
+    if ext in (".ts", ".js") and "src/app" in rel_path.replace("\\", "/"):
+        return "frontend", "frontend"
+
+    return "root", "root"
+
+
+def _detect_module(rel_path: str, project_root: str) -> str:
+    """Compatibilità: ritorna solo il module (sotto-modulo).
+
+    Usa _detect_service_and_module internamente.
+    """
+    _, module = _detect_service_and_module(rel_path, project_root)
+    return module
 
 
 def _truncate_content(content: str, max_chars: int) -> tuple[str, bool]:
@@ -430,7 +523,7 @@ def scan_project(config: DocGenConfig) -> ScanResult:
             content, truncated = _truncate_content(content, trunc_limit)
 
             priority = PRIORITY_MAP.get(category, "bassa")
-            module = _detect_module(rel_path, root)
+            service, module = _detect_service_and_module(rel_path, root)
             seen_modules.add(module)
 
             scanned = ScannedFile(
@@ -442,12 +535,14 @@ def scan_project(config: DocGenConfig) -> ScanResult:
                 size_bytes=size,
                 content=content,
                 module=module,
+                service=service,
                 truncated=truncated,
             )
             result.files.append(scanned)
             result.total_chars += len(content)
 
     result.modules = sorted(seen_modules)
+    result.services = sorted({f.service for f in result.files if f.service})
 
     # Ordina per priorità (alta prima) poi per path
     priority_order = {"alta": 0, "media": 1, "bassa": 2}

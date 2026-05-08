@@ -17,7 +17,7 @@ from .chunker import ChunkPlan, Chunk
 from .analyzer import ProjectAnalysis
 from .prompts import (
     SYSTEM_PROMPT, ANALYZE_CHUNK, FUNCTIONAL_DOC, TECHNICAL_DOC,
-    SYSTEM_ARCHITECTURE_DOC, SERVICE_SUMMARY,
+    SYSTEM_ARCHITECTURE_DOC, SERVICE_SUMMARY, _format_prompt,
 )
 
 console = Console()
@@ -242,9 +242,10 @@ def generate_documents(
         for i, chunk in enumerate(chunk_plan.chunks, 1):
             progress.update(task, description=f"Chunk {i}: {chunk.module}")
 
-            prompt = ANALYZE_CHUNK.format(
+            prompt = _format_prompt(ANALYZE_CHUNK,
                 project_name=config.project_name,
                 static_analysis=static_analysis_text,
+                language_hint=chunk.language_hint(),
                 chunk_content=chunk.to_text(),
             )
 
@@ -276,7 +277,7 @@ def generate_documents(
     # ── Fase 2: Documento funzionale ─────────────────────────────────────
     console.print("\n[bold cyan]Fase 2/3[/bold cyan] — Generazione documento funzionale\n")
 
-    func_prompt = FUNCTIONAL_DOC.format(
+    func_prompt = _format_prompt(FUNCTIONAL_DOC,
         project_name=config.project_name,
         static_analysis=static_analysis_text,
         module_analyses=all_analyses_truncated,
@@ -291,7 +292,7 @@ def generate_documents(
     # ── Fase 3: Documento tecnico ────────────────────────────────────────
     console.print("\n[bold cyan]Fase 3/3[/bold cyan] — Generazione documento tecnico\n")
 
-    tech_prompt = TECHNICAL_DOC.format(
+    tech_prompt = _format_prompt(TECHNICAL_DOC,
         project_name=config.project_name,
         static_analysis=static_analysis_text,
         module_analyses=all_analyses_truncated,
@@ -383,9 +384,10 @@ def generate_documents_hybrid(
             for i, chunk in enumerate(chunk_plan.chunks, 1):
                 progress.update(task, description=f"Chunk {i}: {chunk.module}")
 
-                prompt = ANALYZE_CHUNK.format(
+                prompt = _format_prompt(ANALYZE_CHUNK,
                     project_name=config.project_name,
                     static_analysis=module_static_text,
+                    language_hint=chunk.language_hint(),
                     chunk_content=chunk.to_text(),
                 )
 
@@ -415,7 +417,7 @@ def generate_documents_hybrid(
         # ── Fase 2: Doc funzionale per questo modulo ─────────────────
         console.print(f"  Generazione doc funzionale per {module_name}...")
 
-        func_prompt = FUNCTIONAL_DOC.format(
+        func_prompt = _format_prompt(FUNCTIONAL_DOC,
             project_name=f"{config.project_name} — {module_name}",
             static_analysis=module_static_text,
             module_analyses=all_analyses_truncated,
@@ -431,7 +433,7 @@ def generate_documents_hybrid(
         # ── Fase 3: Doc tecnica per questo modulo ────────────────────
         console.print(f"  Generazione doc tecnica per {module_name}...")
 
-        tech_prompt = TECHNICAL_DOC.format(
+        tech_prompt = _format_prompt(TECHNICAL_DOC,
             project_name=f"{config.project_name} — {module_name}",
             static_analysis=module_static_text,
             module_analyses=all_analyses_truncated,
@@ -449,7 +451,7 @@ def generate_documents_hybrid(
         # ── Riepilogo sintetico per architettura ─────────────────────
         console.print(f"  Generazione riepilogo {module_name}...")
 
-        summary_prompt = SERVICE_SUMMARY.format(
+        summary_prompt = _format_prompt(SERVICE_SUMMARY,
             service_name=module_name,
             module_analyses=all_analyses_truncated,
         )
@@ -473,7 +475,7 @@ def generate_documents_hybrid(
     all_summaries = "\n\n---\n\n".join(service_summaries)
     all_summaries_truncated = smart_truncate(all_summaries, synthesis_budget_chars)
 
-    arch_prompt = SYSTEM_ARCHITECTURE_DOC.format(
+    arch_prompt = _format_prompt(SYSTEM_ARCHITECTURE_DOC,
         project_name=config.project_name,
         static_analysis=static_analysis_text,
         service_summaries=all_summaries_truncated,

@@ -144,21 +144,27 @@ class ProjectAnalysis:
         return "\n".join(lines) if lines else "Nessuna informazione strutturale rilevata."
 
     def summary_text_for_module(self, module_name: str) -> str:
-        """Produce un riepilogo testuale filtrato per un singolo modulo.
+        """Produce un riepilogo testuale filtrato per un singolo servizio/modulo.
 
         Filtra endpoint, entità, route, componenti per quelli il cui file
-        inizia col prefisso del modulo.
+        inizia col prefisso del modulo (gestisce sia servizi che sotto-moduli).
         """
         lines: list[str] = []
 
-        mod_endpoints = [ep for ep in self.endpoints if ep.file.startswith(module_name + "/") or ep.file.startswith(module_name + os.sep)]
+        def _matches(file_path: str) -> bool:
+            """Controlla se il file appartiene al modulo/servizio dato."""
+            norm = file_path.replace(os.sep, "/")
+            prefix = module_name.replace(os.sep, "/")
+            return norm.startswith(prefix + "/") or norm.startswith(prefix + os.sep)
+
+        mod_endpoints = [ep for ep in self.endpoints if _matches(ep.file)]
         if mod_endpoints:
             lines.append("## Endpoint REST rilevati")
             for ep in mod_endpoints:
                 lines.append(f"- {ep.method} {ep.path}  →  {ep.handler} ({ep.file})")
             lines.append("")
 
-        mod_entities = [ent for ent in self.entities if ent.file.startswith(module_name + "/") or ent.file.startswith(module_name + os.sep)]
+        mod_entities = [ent for ent in self.entities if _matches(ent.file)]
         if mod_entities:
             lines.append("## Entità rilevate")
             for ent in mod_entities:
@@ -169,7 +175,7 @@ class ProjectAnalysis:
                 lines.append(f"  File: {ent.file}")
             lines.append("")
 
-        mod_routes = [r for r in self.routes if r.file.startswith(module_name + "/") or r.file.startswith(module_name + os.sep)]
+        mod_routes = [r for r in self.routes if _matches(r.file)]
         if mod_routes:
             lines.append("## Route frontend rilevate")
             for r in mod_routes:
@@ -177,7 +183,7 @@ class ProjectAnalysis:
                 lines.append(f"- /{r.path} → {r.component}{lazy} ({r.file})")
             lines.append("")
 
-        mod_components = [c for c in self.components if c.file.startswith(module_name + "/") or c.file.startswith(module_name + os.sep)]
+        mod_components = [c for c in self.components if _matches(c.file)]
         if mod_components:
             lines.append("## Componenti frontend rilevati")
             for c in mod_components:
@@ -774,136 +780,6 @@ def _extract_generic_deps(file: ScannedFile) -> list[Dependency]:
                 deps.append(Dependency(name=name, version="", scope="pip"))
 
     return deps
-
-
-# ── Estrattori generici cross-linguaggio ─────────────────────────────────────
-
-# Endpoint Python (FastAPI, Flask, Django REST)
-_PYTHON_ROUTE_RE = re.compile(
-    r'''@(?:app|router|api_view)\.\s*(get|post|put|delete|patch)\s*\(\s*["\']([^"\']+)["\']''',
-    re.IGNORECASE,
-)
-_PYTHON_DECORATOR_RE = re.compile(
-    r'''@(?:app\.route|api_view)\s*\(\s*["\']([^"\']+)["\'](?:.*?methods\s*=\s*\[([^\]]+)\])?''',
-    re.IGNORECASE | re.DOTALL,
-)
-_DJANGO_URL_RE = re.compile(
-    r'''path\s*\(\s*["\']([^"\']+)["\']''',
-)
-
-# Endpoint NestJS / Express
-_NESTJS_RE = re.compile(
-    r'''@(Get|Post|Put|Delete|Patch)\s*\(\s*(?:["\']([^"\']*)["\'])?\s*\)''',
-)
-_EXPRESS_RE = re.compile(
-    r'''(?:app|router)\.\s*(get|post|put|delete|patch)\s*\(\s*["\']([^"\']+)["\']''',
-    re.IGNORECASE,
-)
-
-# Entità Python (Django models, SQLAlchemy)
-_DJANGO_MODEL_RE = re.compile(
-    r'''class\s+(\w+)\s*\(\s*(?:models\.Model|admin\.ModelAdmin)''',
-)
-_SQLALCHEMY_MODEL_RE = re.compile(
-    r'''class\s+(\w+)\s*\(\s*(?:Base|db\.Model)''',
-)
-
-# Entità TypeORM / Mongoose
-_TYPEORM_ENTITY_RE = re.compile(r'@Entity\s*\(')
-_MONGOOSE_SCHEMA_RE = re.compile(r'(?:new\s+)?(?:mongoose\.)?Schema\s*\(')
-_PRISMA_MODEL_RE = re.compile(r'^model\s+(\w+)\s*\{', re.MULTILINE)
-
-# Dipendenze Python
-_REQUIREMENTS_RE = re.compile(r'^([a-zA-Z0-9_-]+)(?:[=<>!~]+(.+))?$', re.MULTILINE)
-_PYPROJECT_DEP_RE = re.compile(r'^([a-zA-Z0-9_-]+)(?:[=<>!~]+(.+))?$', re.MULTILINE)
-
-# Dipendenze Go
-_GOMOD_RE = re.compile(r'^\t([^\s]+)\s+(v[\d.]+)', re.MULTILINE)
-
-# Dipendenze Rust
-_CARGO_RE = re.compile(r'^(\w[\w-]*)\s*=\s*"([^"]+)"', re.MULTILINE)
-
-# Dipendenze Ruby
-_GEMFILE_RE = re.compile(r'''gem\s+["\']([^"\']+)["\']\s*(?:,\s*["\']([^"\']+)["\'])?''')
-
-# Dipendenze PHP
-_COMPOSER_RE = re.compile(r'''"([^"]+)":\s*"([^"]+)"''')
-
-
-def _extract_generic_endpoints(file: ScannedFile) -> list[RestEndpoint]:
-    """Estrae endpoint REST da file Python/Node/Express/NestJS."""
-    endpoints: list[RestEndpoint] = []
-    content = file.content
-    ext = file.extension
-
-    # Python (FastAPI/Flask @app.get, @router.post)
-    if ext == ".py":
-        for m in _PYTHON_ROUTE_RE.finditer(content):
-            endpoints.append(RestEndpoint(
-                method=m.group(1).upper(), path=m.group(2),
-                handler="", file=file.path,
-            ))
-        for m in _PYTHON_DECORATOR_RE.finditer(content):
-            methods_str = m.group(2) or "GET"
-            for method in re.findall(r'[A-Z]+', methods_str.upper()):
-                endpoints.append(RestEndpoint(
-                    method=method, path=m.group(1),
-                    handler="", file=file.path,
-                ))
-
-    # NestJS (@Get, @Post decorators on .ts files)
-    if ext == ".ts":
-        for m in _NESTJS_RE.finditer(content):
-            endpoints.append(RestEndpoint(
-                method=m.group(1).upper(), path=m.group(2) or "/",
-                handler="", file=file.path,
-            ))
-
-    # Express.js (app.get, router.post)
-    if ext in (".js", ".ts"):
-        for m in _EXPRESS_RE.finditer(content):
-            endpoints.append(RestEndpoint(
-                method=m.group(1).upper(), path=m.group(2),
-                handler="", file=file.path,
-            ))
-
-    return endpoints
-
-
-def _extract_generic_entities(file: ScannedFile) -> list[JpaEntity]:
-    """Estrae entità/modelli da file Python/TypeORM/Mongoose/Prisma."""
-    entities: list[JpaEntity] = []
-    content = file.content
-    ext = file.extension
-
-    # Django models
-    if ext == ".py":
-        for m in _DJANGO_MODEL_RE.finditer(content):
-            entities.append(JpaEntity(
-                name=m.group(1), table="", fields=["(Django model)"], file=file.path,
-            ))
-        for m in _SQLALCHEMY_MODEL_RE.finditer(content):
-            entities.append(JpaEntity(
-                name=m.group(1), table="", fields=["(SQLAlchemy model)"], file=file.path,
-            ))
-
-    # Prisma
-    if ext == ".prisma":
-        for m in _PRISMA_MODEL_RE.finditer(content):
-            entities.append(JpaEntity(
-                name=m.group(1), table="", fields=["(Prisma model)"], file=file.path,
-            ))
-
-    # TypeORM (@Entity decorator in .ts)
-    if ext == ".ts" and _TYPEORM_ENTITY_RE.search(content):
-        class_match = re.search(r'export\s+class\s+(\w+)', content)
-        if class_match:
-            entities.append(JpaEntity(
-                name=class_match.group(1), table="",
-                fields=["(TypeORM entity)"], file=file.path,
-            ))
-
-    return entities
 
 
 def _extract_generic_deps(file: ScannedFile) -> list[Dependency]:

@@ -25,7 +25,7 @@ from .analyzer import analyze_project, ProjectAnalysis
 from .chunker import create_chunks, ChunkPlan
 from .prompts import (
     SYSTEM_PROMPT, ANALYZE_CHUNK, FUNCTIONAL_DOC, TECHNICAL_DOC,
-    SYSTEM_ARCHITECTURE_DOC, SERVICE_SUMMARY,
+    SYSTEM_ARCHITECTURE_DOC, SERVICE_SUMMARY, _format_prompt,
 )
 from .generator import smart_truncate
 
@@ -64,7 +64,8 @@ def _print_scan_stats(result: ScanResult, config: DocGenConfig) -> None:
     table.add_row("Dimensione totale", f"{result.total_size / 1024:.1f} KB")
     table.add_row("Caratteri totali", f"{result.total_chars:,}")
     table.add_row("Token stimati", f"{config.chars_to_tokens(result.total_chars):,}")
-    table.add_row("Moduli rilevati", ", ".join(result.modules) or "nessuno")
+    table.add_row("Microservizi rilevati", ", ".join(result.services) or "nessuno")
+    table.add_row("Sotto-moduli rilevati", ", ".join(result.modules) or "nessuno")
     table.add_row("File saltati (troppo grandi)", str(result.skipped_count))
     table.add_row("Errori lettura", str(result.error_count))
     console.print(table)
@@ -184,11 +185,15 @@ def _print_chunk_plan(plan: ChunkPlan, analysis_tokens: int = 0) -> None:
 
 
 def _is_large_project(scan_result: ScanResult, chunk_plan: ChunkPlan) -> bool:
-    """Rileva se il progetto è grande abbastanza per suggerire la modalità ibrida."""
-    n_modules = len(scan_result.modules)
+    """Rileva se il progetto è grande abbastanza per suggerire la modalità ibrida.
+
+    Usa il numero di SERVIZI (microservizi distinti), non di moduli interni.
+    Un microservizio Maven multi-modulo conta come 1 servizio, non N moduli.
+    """
+    n_services = len(scan_result.services)
     n_chunks = chunk_plan.total_chunks
     return (
-        n_modules >= LARGE_PROJECT_MIN_MODULES
+        n_services >= LARGE_PROJECT_MIN_MODULES
         and n_chunks >= LARGE_PROJECT_MIN_CHUNKS
     )
 
@@ -197,47 +202,64 @@ def _create_module_chunk_plans(
     scan_result: ScanResult,
     config: DocGenConfig,
 ) -> dict[str, ChunkPlan]:
-    """Crea un ChunkPlan separato per ogni modulo rilevato."""
-    from .chunker import create_chunks as _create_chunks, ChunkPlan as _CP, Chunk
+    """Crea un ChunkPlan separato per ogni SERVIZIO (microservizio).
 
-    by_module = scan_result.files_by_module()
-    module_plans: dict[str, ChunkPlan] = {}
+    I file di sotto-moduli Maven (es. administration-api/core, administration-api/web)
+    vengono aggregati nello stesso ChunkPlan del servizio padre (administration-api).
+    Il nome del sotto-modulo è preservato nel Chunk.module per orientare l'LLM,
+    ma non genera documenti separati.
+    """
+    from .chunker import ChunkPlan as _CP, Chunk
+
+    by_service = scan_result.files_by_service()
+    service_plans: dict[str, ChunkPlan] = {}
 
     budget_chars = config.tokens_to_chars(config.chunk_budget)
 
-    for module_name in sorted(by_module.keys()):
-        files = by_module[module_name]
+    for service_name in sorted(by_service.keys()):
+        files = by_service[service_name]
         priority_order = {"alta": 0, "media": 1, "bassa": 2}
-        files.sort(key=lambda f: (priority_order.get(f.priority, 2), f.path))
+        files.sort(key=lambda f: (priority_order.get(f.priority, 2), f.module, f.path))
 
-        plan = ChunkPlan()
-        current_chunk = Chunk(module=module_name)
+        plan = _CP()
 
-        for file in files:
-            file_chars = len(file.content)
+        # Raggruppa per sotto-modulo per mantenere coerenza nei chunk
+        # (file dello stesso sotto-modulo tendono a stare insieme)
+        by_submodule: dict[str, list] = {}
+        for f in files:
+            by_submodule.setdefault(f.module, []).append(f)
 
-            if file_chars > budget_chars:
-                if current_chunk.files:
+        for submodule_name in sorted(by_submodule.keys()):
+            submodule_files = by_submodule[submodule_name]
+            # Il nome del chunk include il sotto-modulo per orientare l'LLM
+            chunk_label = submodule_name if submodule_name != service_name else service_name
+            current_chunk = Chunk(module=chunk_label)
+
+            for file in submodule_files:
+                file_chars = len(file.content)
+
+                if file_chars > budget_chars:
+                    if current_chunk.files:
+                        plan.chunks.append(current_chunk)
+                        current_chunk = Chunk(module=chunk_label)
+                    big_chunk = Chunk(module=f"{chunk_label} (file grande)")
+                    big_chunk.add_file(file)
+                    plan.chunks.append(big_chunk)
+                    continue
+
+                if current_chunk.total_chars + file_chars > budget_chars:
                     plan.chunks.append(current_chunk)
-                    current_chunk = Chunk(module=module_name)
-                big_chunk = Chunk(module=module_name)
-                big_chunk.add_file(file)
-                plan.chunks.append(big_chunk)
-                continue
+                    current_chunk = Chunk(module=chunk_label)
 
-            if current_chunk.total_chars + file_chars > budget_chars:
+                current_chunk.add_file(file)
+
+            if current_chunk.files:
                 plan.chunks.append(current_chunk)
-                current_chunk = Chunk(module=module_name)
-
-            current_chunk.add_file(file)
-
-        if current_chunk.files:
-            plan.chunks.append(current_chunk)
 
         if plan.chunks:
-            module_plans[module_name] = plan
+            service_plans[service_name] = plan
 
-    return module_plans
+    return service_plans
 
 
 def _estimate_hybrid_cost(module_plans: dict[str, ChunkPlan], analysis_tokens: int = 0) -> float:
@@ -438,9 +460,10 @@ def _export_prompts_unified(
 
     # Prompt di analisi per ogni chunk
     for i, chunk in enumerate(chunk_plan.chunks, 1):
-        prompt = ANALYZE_CHUNK.format(
+        prompt = _format_prompt(ANALYZE_CHUNK,
             project_name=config.project_name,
             static_analysis=static_text,
+            language_hint=chunk.language_hint(),
             chunk_content=chunk.to_text(),
         )
         fname = f"01_ANALISI_CHUNK_{i:02d}_{chunk.module}.md"
@@ -462,7 +485,7 @@ def _export_prompts_unified(
     )
 
     # Prompt doc funzionale
-    func_prompt = FUNCTIONAL_DOC.format(
+    func_prompt = _format_prompt(FUNCTIONAL_DOC,
         project_name=config.project_name,
         static_analysis=static_text,
         module_analyses=placeholder,
@@ -479,7 +502,7 @@ def _export_prompts_unified(
     console.print(f"  [green]✓[/green] {func_path.name}")
 
     # Prompt doc tecnica
-    tech_prompt = TECHNICAL_DOC.format(
+    tech_prompt = _format_prompt(TECHNICAL_DOC,
         project_name=config.project_name,
         static_analysis=static_text,
         module_analyses=placeholder,
@@ -543,9 +566,10 @@ def _export_prompts_hybrid(
 
         # Analisi chunk
         for i, chunk in enumerate(chunk_plan.chunks, 1):
-            prompt = ANALYZE_CHUNK.format(
+            prompt = _format_prompt(ANALYZE_CHUNK,
                 project_name=config.project_name,
                 static_analysis=static_text,
+                language_hint=chunk.language_hint(),
                 chunk_content=chunk.to_text(),
             )
             fname = f"01_ANALISI_CHUNK_{i:02d}_{chunk.module}.md"
@@ -565,7 +589,7 @@ def _export_prompts_hybrid(
         )
 
         # Doc funzionale
-        func_prompt = FUNCTIONAL_DOC.format(
+        func_prompt = _format_prompt(FUNCTIONAL_DOC,
             project_name=f"{config.project_name} — {mod_name}",
             static_analysis=static_text,
             module_analyses=placeholder,
@@ -582,7 +606,7 @@ def _export_prompts_hybrid(
         console.print(f"    [green]✓[/green] 02_SPECIFICA_FUNZIONALE.md")
 
         # Doc tecnica
-        tech_prompt = TECHNICAL_DOC.format(
+        tech_prompt = _format_prompt(TECHNICAL_DOC,
             project_name=f"{config.project_name} — {mod_name}",
             static_analysis=static_text,
             module_analyses=placeholder,
@@ -598,7 +622,7 @@ def _export_prompts_hybrid(
         console.print(f"    [green]✓[/green] 03_SPECIFICA_TECNICA.md")
 
         # Riepilogo servizio (per architettura)
-        summary_prompt = SERVICE_SUMMARY.format(
+        summary_prompt = _format_prompt(SERVICE_SUMMARY,
             service_name=mod_name,
             module_analyses=placeholder,
         )
@@ -620,7 +644,7 @@ def _export_prompts_hybrid(
 
     # Architettura di sistema
     all_summaries_placeholder = "\n\n---\n\n".join(service_summary_placeholder_parts)
-    arch_prompt = SYSTEM_ARCHITECTURE_DOC.format(
+    arch_prompt = _format_prompt(SYSTEM_ARCHITECTURE_DOC,
         project_name=config.project_name,
         static_analysis=static_text,
         service_summaries=all_summaries_placeholder,
@@ -646,14 +670,31 @@ def _export_prompts_hybrid(
 
 
 def _build_project_tree(scan_result: ScanResult) -> str:
-    """Costruisce un albero testuale della struttura del progetto."""
+    """Costruisce un albero testuale della struttura del progetto, raggruppato per servizio."""
     lines: list[str] = []
-    by_module = scan_result.files_by_module()
-    for module in sorted(by_module.keys()):
-        lines.append(f"📁 {module}/")
-        for f in sorted(by_module[module], key=lambda x: x.path):
-            marker = "⚠️" if f.category == "business_critical" else " "
-            lines.append(f"  {marker} {f.path}  [{f.category}] ({f.priority})")
+    by_service = scan_result.files_by_service()
+    for service in sorted(by_service.keys()):
+        lines.append(f"📁 {service}/")
+        svc_files = by_service[service]
+        # Raggruppa per sotto-modulo se presenti
+        submodules = sorted({f.module for f in svc_files if f.module != service})
+        if submodules:
+            # File del modulo radice
+            root_files = [f for f in svc_files if f.module == service]
+            for f in sorted(root_files, key=lambda x: x.path):
+                marker = "⚠️" if f.category == "business_critical" else " "
+                lines.append(f"  {marker} {f.path}  [{f.category}] ({f.priority})")
+            # Sotto-moduli
+            for submod in submodules:
+                short = submod.replace(f"{service}/", "")
+                lines.append(f"  📦 {short}/")
+                for f in sorted([x for x in svc_files if x.module == submod], key=lambda x: x.path):
+                    marker = "⚠️" if f.category == "business_critical" else " "
+                    lines.append(f"    {marker} {f.path}  [{f.category}] ({f.priority})")
+        else:
+            for f in sorted(svc_files, key=lambda x: x.path):
+                marker = "⚠️" if f.category == "business_critical" else " "
+                lines.append(f"  {marker} {f.path}  [{f.category}] ({f.priority})")
     return "\n".join(lines)
 
 
@@ -727,46 +768,146 @@ def _append_urgency_file_list(lines: list[str], files: list['ScannedFile']) -> N
 # ── Per-microservice context generation (P6) ─────────────────────────────
 
 def _generate_module_context_md(
-    module_name: str,
-    module_files: list['ScannedFile'],
+    service_name: str,
+    service_files: list['ScannedFile'],
     analysis: ProjectAnalysis,
     config: DocGenConfig,
 ) -> str:
-    """Genera il contesto per un singolo microservizio."""
+    """Genera il contesto per un singolo microservizio.
+
+    Se il microservizio ha sotto-moduli Maven, li mostra come sezioni separate
+    all'interno dello stesso documento di contesto — non genera documenti separati.
+    """
     lines: list[str] = []
 
-    lines.append(f"# Microservizio: {module_name}")
+    lines.append(f"# Microservizio: {service_name}")
     lines.append(f"\n> Progetto: {config.project_name}")
     lines.append(f"> Generato da DocGen il {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
 
-    # Statistiche modulo
+    # Statistiche microservizio
     lines.append("## Statistiche\n")
-    lines.append(f"- **File**: {len(module_files)}")
+    lines.append(f"- **File totali**: {len(service_files)}")
     ext_counts: dict[str, int] = {}
-    for f in module_files:
+    for f in service_files:
         ext_counts[f.extension] = ext_counts.get(f.extension, 0) + 1
     lang_list = ", ".join(f"{ext} ({c})" for ext, c in sorted(ext_counts.items(), key=lambda x: -x[1])[:10])
     lines.append(f"- **Linguaggi**: {lang_list}")
+
+    # Rileva sotto-moduli
+    submodules = sorted({f.module for f in service_files if f.module != service_name})
+    if submodules:
+        lines.append(f"- **Sotto-moduli Maven**: {', '.join(submodules)}")
     lines.append("")
 
-    # Analisi statica filtrata per questo modulo
-    module_analysis = analysis.summary_text_for_module(module_name)
+    # Analisi statica filtrata per questo servizio
+    module_analysis = analysis.summary_text_for_module(service_name)
     if module_analysis:
         lines.append(module_analysis)
         lines.append("")
 
-    # File per urgenza (P7)
+    # File per urgenza — se ci sono sotto-moduli, mostrali per sezione
     lines.append("## File del microservizio\n")
-    _append_urgency_file_list(lines, module_files)
 
-    # Istruzioni specifiche per questo modulo
+    if submodules:
+        # Mostra prima i file del modulo radice (stesso nome del servizio)
+        root_files = [f for f in service_files if f.module == service_name]
+        if root_files:
+            lines.append(f"### Modulo radice: `{service_name}`\n")
+            _append_urgency_file_list(lines, root_files)
+
+        # Poi i sotto-moduli
+        for submod in submodules:
+            sub_files = [f for f in service_files if f.module == submod]
+            if sub_files:
+                # Mostra solo il nome del sotto-modulo (senza il prefisso del servizio)
+                short_name = submod.replace(f"{service_name}/", "")
+                lines.append(f"### Sotto-modulo: `{short_name}`\n")
+                _append_urgency_file_list(lines, sub_files)
+    else:
+        _append_urgency_file_list(lines, service_files)
+
+    # Istruzioni specifiche per questo servizio
     lines.append("---\n")
     lines.append("## Documenti da generare\n")
     lines.append(f"Per questo microservizio genera:\n")
-    lines.append(f"1. `{module_name}/specifica_funzionale.md`")
-    lines.append(f"2. `{module_name}/specifica_tecnica.md`\n")
+    lines.append(f"1. `{service_name}/specifica_funzionale.md`")
+    lines.append(f"2. `{service_name}/specifica_tecnica.md`\n")
+
+    if submodules:
+        lines.append(f"**Nota**: questo microservizio è strutturato in {len(submodules) + 1} sotto-moduli Maven.")
+        lines.append("I documenti devono coprire il microservizio nella sua interezza — NON generare documenti separati per sotto-modulo.")
+        lines.append("Usa i sotto-moduli come sezioni logiche all'interno dei documenti (es. nella struttura dei package e nel modello dati).\n")
+
     lines.append("Leggi i file 🔴 obbligatoriamente. Per i file 🟡, leggili se servono dettagli su entità o configurazioni. "
                   "I file ⚪ solo se hai bisogno di contesto aggiuntivo.\n")
+
+    return "\n".join(lines)
+
+
+def _build_document_structure_reference(is_hybrid: bool = False) -> str:
+    """Genera un riferimento compatto alla struttura dei documenti da produrre.
+
+    Invece di iniettare i prompt completi (costosi in token), fornisce solo
+    i titoli delle sezioni con una riga di descrizione. L'LLM usa questa
+    struttura come indice e si affida al SYSTEM_PROMPT per le regole generali.
+    """
+    lines: list[str] = []
+
+    lines.append("### Specifica Funzionale — struttura sezioni\n")
+    lines.append("Genera il documento con ESATTAMENTE queste sezioni nell'ordine indicato:\n")
+    lines.append("1. **Introduzione** — scopo, ambito (includi cosa il sistema NON fa), riferimenti, glossario")
+    lines.append("2. **Descrizione generale** — panoramica, attori, vincoli, limitazioni note")
+    lines.append("3. **Requisiti funzionali** — formato [FUN-NNN], con attore, pre/post-condizioni, priorità")
+    lines.append("4. **Casi d'uso dettagliati** — diagramma Mermaid `flowchart LR` attori→UC, poi UC dettagliati con flussi alternativi e gestione errori")
+    lines.append("5. **Modello dati funzionale** — descrizione entità + diagramma Mermaid `erDiagram`")
+    lines.append("6. **Interfaccia utente** — schermate principali + diagramma Mermaid `flowchart TD` navigazione")
+    lines.append("7. **Integrazioni e interfacce esterne**")
+    lines.append("8. **Regole di business** — formato [RB-NNN] con implementazione, vincolo, impatto")
+    lines.append("9. **Requisiti non funzionali** — prestazioni, sicurezza, usabilità, disponibilità")
+    lines.append("10. **Matrice funzionalità-componenti** — tabella requisito→componente→modulo")
+    lines.append("11. **Matrice CRUD** — tabella entità×attore con operazioni C/R/U/D")
+    lines.append("")
+    lines.append("**Sezioni senza dati**: scrivi `> ⚠️ Da completare — informazioni non rilevabili dal codice sorgente in questa fase.`")
+    lines.append("**Revisione finale obbligatoria**: dopo aver scritto tutte le sezioni, torna sulle sezioni ⚠️ e verifica la coerenza interna (attori↔UC, requisiti↔UC, entità↔regole business, matrice CRUD↔UC). Correggi le incoerenze trovate.")
+    lines.append("")
+
+    lines.append("### Specifica Tecnica — struttura sezioni\n")
+    lines.append("Genera il documento con ESATTAMENTE queste sezioni nell'ordine indicato:\n")
+    lines.append("1. **Introduzione** — scopo, ambito, riferimenti, glossario tecnico")
+    lines.append("2. **Architettura del sistema** — pattern architetturale, diagramma Mermaid `flowchart TD` architettura generale, diagramma componenti")
+    lines.append("3. **Stack tecnologico** — tabella tecnologia/versione/scopo (usa i dati dell'analisi statica)")
+    lines.append("4. **Dettaglio backend** — struttura package, tabella API REST completa (metodo/endpoint/descrizione/controller/autenticazione), modello dati con diagramma Mermaid `erDiagram` completo, logica di business, sicurezza e autenticazione")
+    lines.append("5. **Dettaglio frontend** — struttura moduli, tabella routing, componenti principali, servizi, gestione stato")
+    lines.append("6. **Configurazione e deployment** — file di configurazione, tabella variabili d'ambiente (nome/tipo/default/obbligatoria), requisiti di sistema, build e deploy")
+    lines.append("7. **Integrazioni esterne** — API consumate, database, servizi di autenticazione")
+    lines.append("8. **Requisiti non funzionali tecnici** — prestazioni, logging, gestione errori, testing")
+    lines.append("9. **Flussi operativi — Diagrammi di sequenza** — per i 3-5 flussi principali, diagramma Mermaid `sequenceDiagram` con flusso nominale E flusso di errore (alt/else)")
+    lines.append("10. **Flussi asincroni** — solo se presenti: direzione, canale, payload, trigger, effetto + diagramma sequenza")
+    lines.append("11. **Gestione errori e codici di stato** — strategia error handling, tabella catalogo errori")
+    lines.append("12. **Debito tecnico e osservazioni** — solo elementi rilevati nel codice (TODO, FIXME, config insicure, bug potenziali)")
+    lines.append("13. **Appendici** — struttura progetto, script utili")
+    lines.append("")
+    lines.append("**Sezioni senza dati**: scrivi `> ⚠️ Da completare — informazioni non rilevabili dal codice sorgente in questa fase.`")
+    lines.append("**Revisione finale obbligatoria**: dopo aver scritto tutte le sezioni, torna sulle sezioni ⚠️, verifica la coerenza con la Specifica Funzionale (endpoint API↔casi d'uso, entità ER↔modello funzionale, ruoli sicurezza↔attori, flussi sequenza↔flussi operativi), e verifica la sintassi Mermaid di tutti i diagrammi. Correggi le incoerenze trovate.")
+    lines.append("")
+
+    if is_hybrid:
+        lines.append("### Architettura di Sistema — struttura sezioni\n")
+        lines.append("Genera il documento con ESATTAMENTE queste sezioni nell'ordine indicato:\n")
+        lines.append("1. **Introduzione** — scopo, panoramica sistema, limitazioni note")
+        lines.append("2. **Mappa dei microservizi** — tabella microservizi + diagramma Mermaid `flowchart TD` con tutti i servizi, frontend e comunicazioni")
+        lines.append("3. **Integrazioni e comunicazioni** — matrice di dipendenza (chi chiama chi), pattern di comunicazione, autenticazione cross-service")
+        lines.append("4. **Flussi operativi end-to-end** — 3-5 flussi principali, ciascuno con diagramma Mermaid `sequenceDiagram` che mostra la sequenza di microservizi")
+        lines.append("5. **Modello dati complessivo** — tabella DB per servizio, relazioni cross-service, diagramma Mermaid `erDiagram` di sistema")
+        lines.append("6. **Stack tecnologico unificato** — tabella tecnologia/versione/usata-da/scopo")
+        lines.append("7. **Deployment e infrastruttura** — diagramma Mermaid deployment, configurazione condivisa")
+        lines.append("8. **Requisiti non funzionali trasversali** — scalabilità, resilienza, logging centralizzato, testing cross-service")
+        lines.append("9. **Matrice microservizio-funzionalità** — tabella funzionalità→microservizio responsabile→microservizi coinvolti")
+        lines.append("")
+        lines.append("**Focus**: descrivi le INTEGRAZIONI tra servizi, non i dettagli interni di ciascuno.")
+        lines.append("**Sezioni senza dati**: scrivi `> ⚠️ Da completare — informazioni non rilevabili dal codice sorgente in questa fase.`")
+        lines.append("**Revisione finale obbligatoria**: verifica coerenza con le specifiche per-servizio (matrice dipendenze↔endpoint esposti, ER sistema↔entità per-servizio, flussi end-to-end↔casi d'uso funzionali). Correggi le incoerenze trovate.")
+        lines.append("")
 
     return "\n".join(lines)
 
@@ -815,26 +956,10 @@ def _generate_instructions_md(
     lines.append("## Formato output\n")
     lines.append("Tutti i documenti devono essere in Markdown. Scrivi in italiano.\n")
 
-    # Template
+    # Struttura documenti (compatta — solo titoli sezione, non il prompt completo)
     lines.append("---\n")
-    lines.append("## Template: Specifica Funzionale\n")
-    lines.append("Segui ESATTAMENTE questa struttura per il documento funzionale:\n")
-    func_instructions = FUNCTIONAL_DOC.split("## Istruzioni")[1] if "## Istruzioni" in FUNCTIONAL_DOC else FUNCTIONAL_DOC
-    lines.append(func_instructions.strip())
-    lines.append("")
-
-    lines.append("---\n")
-    lines.append("## Template: Specifica Tecnica\n")
-    lines.append("Segui ESATTAMENTE questa struttura per il documento tecnico:\n")
-    tech_instructions = TECHNICAL_DOC.split("## Istruzioni")[1] if "## Istruzioni" in TECHNICAL_DOC else TECHNICAL_DOC
-    lines.append(tech_instructions.strip())
-    lines.append("")
-
-    lines.append("---\n")
-    lines.append("## Template: Architettura di Sistema\n")
-    lines.append("Segui ESATTAMENTE questa struttura per il documento di architettura:\n")
-    arch_instructions = SYSTEM_ARCHITECTURE_DOC.split("## Istruzioni")[1] if "## Istruzioni" in SYSTEM_ARCHITECTURE_DOC else SYSTEM_ARCHITECTURE_DOC
-    lines.append(arch_instructions.strip())
+    lines.append("## Struttura documenti da generare\n")
+    lines.append(_build_document_structure_reference(is_hybrid=True))
     lines.append("")
 
     lines.append("---\n")
@@ -943,10 +1068,10 @@ def _generate_context_md(
     ext_counts = scan_result.top_extensions(15)
     lang_list = ", ".join(f"{ext} ({count})" for ext, count in ext_counts)
     lines.append(f"- **File totali**: {scan_result.total_files}")
-    lines.append(f"- **Moduli rilevati**: {', '.join(scan_result.modules)}")
+    lines.append(f"- **Microservizi**: {', '.join(scan_result.services)}")
     lines.append(f"- **Linguaggi**: {lang_list}")
     if is_hybrid and module_plans:
-        lines.append(f"- **Microservizi**: {len(module_plans)}")
+        lines.append(f"- **Microservizi documentati**: {len(module_plans)}")
     lines.append("")
 
     # Analisi statica (riusa il summary_text dell'analyzer)
@@ -997,29 +1122,11 @@ def _generate_context_md(
         lines.append("2. Per i file business_critical, leggi SEMPRE il contenuto completo")
         lines.append("3. Genera i due documenti seguendo i template sotto\n")
 
-    # Template documenti
+    # Struttura documenti (compatta — solo titoli sezione, non il prompt completo)
     lines.append("---\n")
-    lines.append("## Template: Specifica Funzionale\n")
-    lines.append("Segui ESATTAMENTE questa struttura per il documento funzionale:\n")
-    # Estraiamo solo la parte istruzioni dal template
-    func_instructions = FUNCTIONAL_DOC.split("## Istruzioni")[1] if "## Istruzioni" in FUNCTIONAL_DOC else FUNCTIONAL_DOC
-    lines.append(func_instructions.strip())
+    lines.append("## Struttura documenti da generare\n")
+    lines.append(_build_document_structure_reference(is_hybrid=is_hybrid and bool(module_plans)))
     lines.append("")
-
-    lines.append("---\n")
-    lines.append("## Template: Specifica Tecnica\n")
-    lines.append("Segui ESATTAMENTE questa struttura per il documento tecnico:\n")
-    tech_instructions = TECHNICAL_DOC.split("## Istruzioni")[1] if "## Istruzioni" in TECHNICAL_DOC else TECHNICAL_DOC
-    lines.append(tech_instructions.strip())
-    lines.append("")
-
-    if is_hybrid and module_plans:
-        lines.append("---\n")
-        lines.append("## Template: Architettura di Sistema\n")
-        lines.append("Segui ESATTAMENTE questa struttura per il documento di architettura:\n")
-        arch_instructions = SYSTEM_ARCHITECTURE_DOC.split("## Istruzioni")[1] if "## Istruzioni" in SYSTEM_ARCHITECTURE_DOC else SYSTEM_ARCHITECTURE_DOC
-        lines.append(arch_instructions.strip())
-        lines.append("")
 
     # Output directory
     lines.append("---\n")
@@ -1165,7 +1272,7 @@ def _agent_export(
     if is_hybrid and module_plans:
         # ── P6: export per-microservizio ─────────────────────────────
         sorted_modules = sorted(module_plans.keys())
-        by_module = scan_result.files_by_module()
+        by_service = scan_result.files_by_service()
 
         # 1. docgen_instructions.md — istruzioni + template (no dati)
         instr_md = _generate_instructions_md(config, sorted_modules)
@@ -1173,13 +1280,13 @@ def _agent_export(
         instr_path.write_text(instr_md, encoding="utf-8")
         console.print(f"  [green]✓[/green] {instr_path.name} ({len(instr_md):,} caratteri)")
 
-        # 2. docgen_context_{module}.md — uno per microservizio
+        # 2. docgen_context_{service}.md — uno per microservizio
         for mod_name in sorted_modules:
-            mod_files = by_module.get(mod_name, [])
-            mod_md = _generate_module_context_md(mod_name, mod_files, analysis, config)
+            svc_files = by_service.get(mod_name, [])
+            mod_md = _generate_module_context_md(mod_name, svc_files, analysis, config)
             mod_path = out_path / f"docgen_context_{mod_name}.md"
             mod_path.write_text(mod_md, encoding="utf-8")
-            console.print(f"  [green]✓[/green] {mod_path.name} ({len(mod_md):,} caratteri, {len(mod_files)} file)")
+            console.print(f"  [green]✓[/green] {mod_path.name} ({len(mod_md):,} caratteri, {len(svc_files)} file)")
 
         # 3. docgen_index.md — indice file generati
         index_md = _generate_index_md(config, sorted_modules, is_hybrid=True)

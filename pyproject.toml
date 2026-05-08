@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "docgen"
-version = "1.0.1"
+version = "1.0.7"
 description = "Generatore automatico di documentazione da codebase"
 readme = "README.md"
 requires-python = ">=3.9"

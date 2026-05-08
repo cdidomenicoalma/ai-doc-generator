@@ -24,6 +24,79 @@ class Chunk:
         self.total_chars += chars
         self.total_tokens_est = int(self.total_chars / CHARS_PER_TOKEN)
 
+    def language_hint(self) -> str:
+        """Restituisce un hint sui linguaggi/framework presenti nel chunk.
+
+        Usato nel prompt ANALYZE_CHUNK per orientare l'LLM sul contesto tecnologico.
+        """
+        ext_counts: dict[str, int] = {}
+        for f in self.files:
+            ext_counts[f.extension] = ext_counts.get(f.extension, 0) + 1
+
+        # Mappa estensione → nome leggibile
+        ext_to_lang = {
+            ".java": "Java",
+            ".ts": "TypeScript",
+            ".js": "JavaScript",
+            ".py": "Python",
+            ".cs": "C#",
+            ".html": "HTML",
+            ".xml": "XML",
+            ".yml": "YAML",
+            ".yaml": "YAML",
+            ".json": "JSON",
+            ".go": "Go",
+            ".rs": "Rust",
+            ".rb": "Ruby",
+            ".php": "PHP",
+            ".prisma": "Prisma",
+            ".sql": "SQL",
+            ".scss": "SCSS",
+            ".css": "CSS",
+        }
+
+        # Framework hints dal contenuto
+        framework_hints: list[str] = []
+        seen_frameworks: set[str] = set()
+        framework_patterns = [
+            ("Spring Boot", ["@SpringBootApplication", "@RestController", "@Service", "@Entity", "@Repository"]),
+            ("Spring Security", ["SecurityFilterChain", "WebSecurityConfigurerAdapter", "@PreAuthorize"]),
+            ("JPA/Hibernate", ["@Entity", "@Table", "@Column", "@OneToMany", "@ManyToOne"]),
+            ("Angular", ["@Component", "@NgModule", "@Injectable", "RouterModule"]),
+            ("NestJS", ["@Controller(", "@Module(", "@Injectable(", "@Get(", "@Post("]),
+            ("ASP.NET Core", ["[ApiController]", "ControllerBase", "IActionResult"]),
+            ("Entity Framework", ["DbContext", "DbSet<", "[Table(", "[Key]"]),
+            ("FastAPI", ["@app.get", "@app.post", "@router.get", "FastAPI()"]),
+            ("Django", ["models.Model", "django.db", "urlpatterns"]),
+            ("Flask", ["@app.route", "Flask(__name__)"]),
+            ("Express.js", ["express()", "app.get(", "router.post("]),
+        ]
+        for f in self.files:
+            if not f.content:
+                continue
+            for fw_name, patterns in framework_patterns:
+                if fw_name not in seen_frameworks:
+                    if any(p in f.content for p in patterns):
+                        framework_hints.append(fw_name)
+                        seen_frameworks.add(fw_name)
+
+        # Costruisci la stringa hint
+        langs = sorted(
+            set(ext_to_lang.get(ext, ext.lstrip(".").upper()) for ext in ext_counts),
+            key=lambda x: ext_counts.get(
+                next((e for e, l in ext_to_lang.items() if l == x), x.lower()), 0
+            ),
+            reverse=True,
+        )
+
+        parts = []
+        if langs:
+            parts.append(f"Linguaggi: {', '.join(langs)}")
+        if framework_hints:
+            parts.append(f"Framework rilevati: {', '.join(framework_hints)}")
+
+        return " | ".join(parts) if parts else "Non determinato"
+
     def to_text(self) -> str:
         """Serializza il chunk in testo per il prompt LLM."""
         parts: list[str] = []
