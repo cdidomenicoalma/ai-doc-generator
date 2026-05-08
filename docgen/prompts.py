@@ -63,6 +63,13 @@ Includi anche i flussi di errore (validazione fallita, not found, ecc.).
 ### 5. Modello dati
 Se sono presenti entità/modelli, descrivi: nome entità, campi con tipo e vincoli, relazioni con altre entità (anche se in altri moduli), chiavi primarie/esterne.
 
+### 6. Dati di dominio
+**Sezione critica**: documenta TUTTI i valori di dominio trovati in questo modulo:
+- **Enum e costanti**: per ogni enum/costante, elenca ogni valore con il suo significato business (es. `TipoRicorso.TAR = "Tribunale Amministrativo Regionale"`)
+- **Macchine a stati**: se ci sono stati, documenta le transizioni ammesse
+- **Codici e lookup**: codici business con descrizione (es. codici tipo, codici ente, codici stato)
+- **Configurazione operativa** (solo se presente app_config): porte di servizio, URL di sistemi esterni, timeout, SLA
+
 ### 6. Interfaccia utente (solo se presente frontend)
 Descrivi le viste, i componenti, le interazioni utente e il routing.
 
@@ -183,7 +190,27 @@ erDiagram
     ENTITA_A ||--o{ ENTITA_B : "relazione"
 ```
 
-## 6. Interfaccia utente
+## 6. Dati di dominio
+Documenta TUTTI i valori di dominio trovati nel codice. Questa sezione è fondamentale per la comprensione del sistema.
+
+### 6.1 Enumerazioni e tipi
+Per ogni enum/costante di dominio trovata nel codice:
+
+| Tipo | Valore | Descrizione business |
+|------|--------|---------------------|
+| NomeTipo | VALORE_1 | Descrizione del valore |
+
+### 6.2 Macchine a stati
+Per ogni entità con stati, documenta le transizioni ammesse:
+
+| Stato iniziale | Evento/Azione | Stato finale | Condizioni |
+|----------------|---------------|--------------|------------|
+| BOZZA | invio | INVIATO | utente autenticato |
+
+### 6.3 Codici e lookup
+Elenca tutti i codici di dominio con il loro significato (es. codici tipo ricorso, codici ente, codici stato).
+
+## 7. Interfaccia utente
 Descrivi le schermate principali e i flussi di navigazione.
 
 ### Diagramma di navigazione
@@ -194,10 +221,21 @@ flowchart TD
     Dashboard --> SchermataB
 ```
 
-## 7. Integrazioni e interfacce esterne
+## 7. Interfaccia utente
+Descrivi le schermate principali e i flussi di navigazione.
+
+### Diagramma di navigazione
+```mermaid
+flowchart TD
+    Login --> Dashboard
+    Dashboard --> SchermataA
+    Dashboard --> SchermataB
+```
+
+## 8. Integrazioni e interfacce esterne
 Descrivi le integrazioni con sistemi esterni, API consumate, sistemi di autenticazione.
 
-## 8. Regole di business
+## 9. Regole di business
 Catalogo delle regole di business estratte dal codice:
 
 ### RB-001: [Nome regola]
@@ -208,20 +246,21 @@ Catalogo delle regole di business estratte dal codice:
 
 Includi: validazioni, vincoli di relazione, comportamenti condizionali, logiche di cascata, idempotenza.
 
-## 9. Requisiti non funzionali
-### 9.1 Prestazioni
-### 9.2 Sicurezza
-### 9.3 Usabilità
-### 9.4 Disponibilità e affidabilità
+## 10. Requisiti non funzionali
+### 10.1 Prestazioni e SLA
+Documenta i target di performance trovati nel codice o nella configurazione (timeout, rate limit, connection pool, response time atteso).
+### 10.2 Sicurezza
+### 10.3 Usabilità
+### 10.4 Disponibilità e affidabilità
 
-## 10. Matrice funzionalità-componenti
+## 11. Matrice funzionalità-componenti
 Tabella che mappa ogni requisito funzionale ai componenti che lo implementano:
 
 | Requisito | Componente/Classe | Modulo | Note |
 |-----------|-------------------|--------|------|
 | FUN-001   | NomeClasse        | backend | ... |
 
-## 11. Matrice CRUD
+## 12. Matrice CRUD
 Tabella che mostra quali attori/componenti eseguono operazioni Create/Read/Update/Delete su ogni entità:
 
 | Entità | Create | Read | Update | Delete | Note |
@@ -236,13 +275,16 @@ Dopo aver completato tutte le sezioni, esegui obbligatoriamente questa revisione
 
 1. **Revisione sezioni incomplete**: cerca tutte le sezioni marcate con `⚠️ Da completare`. Per ciascuna, verifica se hai trovato informazioni rilevanti leggendo i file del progetto. Se sì, completa la sezione. Se no, lascia il marker.
 
-2. **Coerenza interna**: verifica che:
+2. **Completezza sezione Dati di dominio (6)**: verifica di aver documentato TUTTI gli enum, le costanti di stato e i codici di dominio trovati nel codice. Cerca file con `Enum`, `Constant`, `Status`, `Type`, `Code` nel nome.
+
+3. **Coerenza interna**: verifica che:
    - Gli attori descritti nella sezione 2.2 corrispondano a quelli usati nei casi d'uso (sezione 4)
    - I requisiti funzionali (sezione 3) abbiano tutti un caso d'uso corrispondente (sezione 4)
-   - Le entità nel modello dati (sezione 5) corrispondano alle regole di business (sezione 8)
-   - La matrice CRUD (sezione 11) sia coerente con i casi d'uso (sezione 4)
+   - Le entità nel modello dati (sezione 5) corrispondano alle regole di business (sezione 9)
+   - La matrice CRUD (sezione 12) sia coerente con i casi d'uso (sezione 4)
+   - I dati di dominio (sezione 6) siano referenziati nelle regole di business (sezione 9)
 
-3. **Completezza diagrammi**: verifica che tutti i diagrammi Mermaid siano sintatticamente corretti (nessun carattere speciale non escaped, nessuna parentesi aperta non chiusa).
+4. **Completezza diagrammi**: verifica che tutti i diagrammi Mermaid siano sintatticamente corretti.
 
 Se trovi incoerenze, correggile direttamente nel documento prima di consegnare.
 """
@@ -366,13 +408,25 @@ Descrivi come viene gestito lo stato dell'applicazione (servizi con BehaviorSubj
 ### 6.1 Configurazione applicativa
 Descrivi i file di configurazione rilevati (application.yml, appsettings.json, ecc.) e i parametri principali.
 
-### 6.2 Variabili d'ambiente
+### 6.2 Variabili d'ambiente e configurazione per ambiente
 | Variabile | Tipo | Default | Obbligatoria | Descrizione |
 |-----------|------|---------|--------------|-------------|
 Elenca tutte le variabili d'ambiente rilevate nei file di configurazione.
 
-### 6.3 Requisiti di sistema
-### 6.4 Istruzioni di build e deploy
+### 6.3 Porte e URL di servizio
+Documenta le porte e gli URL per ogni ambiente rilevato (dev/staging/prod):
+| Servizio/Componente | Porta dev | Porta prod | URL/Host |
+|---------------------|-----------|------------|----------|
+Ricava questi dati dai file application.yml, application-dev.yml, application-prod.yml, appsettings.json.
+
+### 6.4 SLA e performance targets
+Documenta i target di performance trovati nella configurazione o nei commenti:
+| Parametro | Valore | Contesto |
+|-----------|--------|----------|
+Cerca: timeout di connessione, connection pool size, rate limit, max request size, session timeout.
+
+### 6.5 Requisiti di sistema
+### 6.6 Istruzioni di build e deploy
 
 ## 7. Integrazioni esterne
 ### 7.1 API consumate
@@ -467,19 +521,21 @@ Dopo aver completato tutte le sezioni, esegui obbligatoriamente questa revisione
 
 1. **Revisione sezioni incomplete**: cerca tutte le sezioni marcate con `⚠️ Da completare`. Per ciascuna, verifica se hai trovato informazioni rilevanti leggendo i file del progetto. Se sì, completa la sezione. Se no, lascia il marker.
 
-2. **Coerenza con la Specifica Funzionale** (se già generata): verifica che:
+2. **Completezza configurazione (sezione 6)**: verifica di aver letto i file app_config (application.yml, application-dev.yml, application-prod.yml, appsettings.json). Le sezioni 6.3 (porte) e 6.4 (SLA) devono essere popolate con dati reali, non placeholder.
+
+3. **Coerenza con la Specifica Funzionale** (se già generata): verifica che:
    - Gli endpoint nella tabella API (sezione 4.2) corrispondano ai casi d'uso della Specifica Funzionale
    - Le entità nel diagramma ER (sezione 4.3) corrispondano al modello dati funzionale
    - I ruoli di sicurezza (sezione 4.5) corrispondano agli attori descritti nella Specifica Funzionale
    - I flussi di sequenza (sezione 9) corrispondano ai flussi operativi della Specifica Funzionale
 
-3. **Completezza diagrammi**: verifica che tutti i diagrammi Mermaid siano sintatticamente corretti. Regole Mermaid:
+4. **Completezza diagrammi**: verifica che tutti i diagrammi Mermaid siano sintatticamente corretti. Regole Mermaid:
    - Nei `sequenceDiagram`: usa `participant` per tutti i nodi, `->>` per chiamate sincrone, `-->>` per risposte
    - Negli `erDiagram`: ogni entità deve avere almeno un campo, le relazioni usano `||--o{` ecc.
    - Nei `flowchart`: i nodi con testo speciale vanno tra virgolette `["testo"]`
    - Non usare caratteri speciali non escaped nei label (apostrofi, virgolette, parentesi)
 
-4. **Completezza tabelle**: verifica che la tabella API (4.2) contenga tutti gli endpoint rilevati dall'analisi statica e che la tabella variabili d'ambiente (6.2) contenga tutte le variabili trovate nei file di configurazione.
+5. **Completezza tabelle**: verifica che la tabella API (4.2) contenga tutti gli endpoint rilevati dall'analisi statica e che le tabelle in sezione 6 contengano i dati reali dai file di configurazione.
 
 Se trovi incoerenze, correggile direttamente nel documento prima di consegnare.
 """
@@ -513,12 +569,26 @@ Descrizione di alto livello: cosa fa il sistema, per chi, in quale contesto.
 ### 1.3 Limitazioni note
 Funzionalità non ancora implementate o fuori scope, deducibili dal codice.
 
-## 2. Mappa dei microservizi
-### 2.1 Elenco microservizi
+## 2. Vincoli architetturali
+Documenta i vincoli non negoziabili che hanno guidato le scelte architetturali.
+
+### 2.1 Vincoli tecnologici
+| Vincolo | Valore/Versione | Fonte |
+|---------|-----------------|-------|
+Cerca in: pom.xml (java.version, spring-boot.version), Dockerfile (FROM image), build.gradle, .csproj (TargetFramework).
+
+### 2.2 Vincoli organizzativi e normativi
+Documenta eventuali vincoli normativi (GDPR, normative PA, standard di sicurezza) deducibili dal codice (es. presenza di audit log, cifratura dati, gestione consenso).
+
+### 2.3 Vincoli infrastrutturali
+Ambienti di deployment, container, cloud provider, se deducibili dalla configurazione.
+
+## 3. Mappa dei microservizi
+### 3.1 Elenco microservizi
 | Microservizio | Responsabilità | Tecnologia | Database | Porta |
 |---|---|---|---|---|
 
-### 2.2 Diagramma architetturale
+### 3.2 Diagramma architetturale
 ```mermaid
 flowchart TD
     Client[Client / Browser] --> GW[API Gateway / Frontend]
@@ -530,20 +600,20 @@ flowchart TD
         SvcA -->|REST| SvcB
     end
 ```
-Adatta con i microservizi reali, le loro comunicazioni (REST, messaggi) e i database.
+Adatta con i microservizi reali, le loro comunicazioni (REST, messaggi) e i database. Usa le porte reali dai file di configurazione.
 
-## 3. Integrazioni e comunicazioni
-### 3.1 Matrice di dipendenza
+## 4. Integrazioni e comunicazioni
+### 4.1 Matrice di dipendenza
 | Servizio chiamante | Servizio chiamato | Tipo (REST/async/event) | Endpoint/Topic | Scopo |
 |---|---|---|---|---|
 
-### 3.2 Pattern di comunicazione
+### 4.2 Pattern di comunicazione
 Descrivi i pattern utilizzati: REST sincrono, code messaggi, event-driven, ecc.
 
-### 3.3 Autenticazione e sicurezza cross-service
+### 4.3 Autenticazione e sicurezza cross-service
 Come si autenticano i servizi tra loro (JWT, API key, OAuth2, ecc.) e come vengono propagate le identità.
 
-## 4. Flussi operativi end-to-end
+## 5. Flussi operativi end-to-end
 Descrivi i 3-5 flussi principali del sistema dal punto di vista dell'utente, mostrando la sequenza di microservizi coinvolti.
 
 Per ogni flusso includi un diagramma di sequenza:
@@ -565,15 +635,15 @@ sequenceDiagram
     FE-->>U: Conferma
 ```
 
-## 5. Modello dati complessivo
-### 5.1 Database per servizio
+## 6. Modello dati complessivo
+### 6.1 Database per servizio
 | Microservizio | Tipo DB | Database/Schema | Entità principali |
 |---|---|---|---|
 
-### 5.2 Relazioni cross-service
+### 6.2 Relazioni cross-service
 Descrivi come le entità di servizi diversi si riferiscono tra loro (ID condivisi, eventual consistency, saga pattern).
 
-### 5.3 Diagramma ER di sistema
+### 6.3 Diagramma ER di sistema
 ```mermaid
 erDiagram
     ENTITA_SERVIZIO_A {
@@ -588,12 +658,12 @@ erDiagram
 ```
 Mostra le entità principali di tutti i servizi e le relazioni logiche tra esse.
 
-## 6. Stack tecnologico unificato
+## 7. Stack tecnologico unificato
 | Tecnologia | Versione | Usata da | Scopo |
 |---|---|---|---|
 
-## 7. Deployment e infrastruttura
-### 7.1 Architettura di deployment
+## 8. Deployment e infrastruttura
+### 8.1 Architettura di deployment
 ```mermaid
 flowchart TD
     subgraph Host/Container
@@ -604,16 +674,46 @@ flowchart TD
     Internet --> SvcA
     Internet --> SvcB
 ```
-### 7.2 Configurazione condivisa
+Usa le porte reali dai file application.yml/appsettings.json di ogni microservizio.
+### 8.2 Configurazione condivisa
 Variabili d'ambiente condivise, config server, service discovery, load balancer.
 
-## 8. Requisiti non funzionali trasversali
-### 8.1 Scalabilità
-### 8.2 Resilienza e fault tolerance
-### 8.3 Logging e monitoraggio centralizzato
-### 8.4 Strategia di testing (integration test cross-service)
+## 9. Decisioni architetturali
+Documenta le 3-5 decisioni architetturali principali deducibili dal codice. Per ogni decisione:
 
-## 9. Matrice microservizio-funzionalità
+### DA-001: [Titolo decisione]
+- **Contesto**: problema che la decisione risolve
+- **Decisione**: cosa è stato scelto e come è implementato
+- **Conseguenze**: vantaggi e svantaggi di questa scelta
+- **Evidenza nel codice**: dove si vede questa decisione (classe/file/pattern)
+
+Esempi di decisioni deducibili: scelta JWT vs session, pattern Repository, uso di code async, separazione microservizi, strategia DDL (create-drop vs validate), framework di sicurezza.
+
+## 10. Crosscutting concepts
+Aspetti trasversali a tutti i microservizi (arc42 §8):
+
+### 10.1 Autenticazione e autorizzazione
+Come JWT/token viene generato, validato e propagato tra i servizi. Ruoli e permessi condivisi.
+
+### 10.2 Logging e monitoraggio
+Framework di logging usato, formato dei log, aggregazione centralizzata se presente.
+
+### 10.3 Error handling trasversale
+Pattern comuni di gestione errori tra i servizi (codici di errore condivisi, formato risposta di errore standard).
+
+### 10.4 Gestione della configurazione
+Come vengono gestite le configurazioni per ambiente (config server, variabili d'ambiente, profili Spring/appsettings).
+
+### 10.5 Sicurezza trasversale
+CORS, CSRF, rate limiting, validazione input — pattern comuni a tutti i servizi.
+
+## 11. Requisiti non funzionali trasversali
+### 11.1 Scalabilità
+### 11.2 Resilienza e fault tolerance
+### 11.3 Logging e monitoraggio centralizzato
+### 11.4 Strategia di testing (integration test cross-service)
+
+## 12. Matrice microservizio-funzionalità
 | Funzionalità business | Microservizio responsabile | Microservizi coinvolti | Note |
 |---|---|---|---|
 
@@ -625,12 +725,19 @@ Dopo aver completato tutte le sezioni, esegui obbligatoriamente questa revisione
 
 1. **Revisione sezioni incomplete**: cerca tutte le sezioni marcate con `⚠️ Da completare`. Per ciascuna, verifica se hai trovato informazioni nei riepiloghi dei microservizi. Se sì, completa la sezione.
 
-2. **Coerenza con le specifiche per-servizio** (se già generate): verifica che:
-   - La matrice di dipendenza (sezione 3.1) sia coerente con gli endpoint esposti da ciascun microservizio
-   - Il diagramma ER di sistema (sezione 5.3) includa tutte le entità principali descritte nelle specifiche tecniche per-servizio
-   - I flussi end-to-end (sezione 4) siano coerenti con i casi d'uso delle specifiche funzionali per-servizio
+2. **Completezza vincoli (sezione 2)**: verifica di aver documentato i vincoli tecnologici reali (versioni Java/framework dai pom.xml, immagini Docker, ecc.).
 
-3. **Completezza diagrammi Mermaid**: verifica la sintassi di tutti i diagrammi prima di consegnare.
+3. **Completezza decisioni architetturali (sezione 9)**: verifica di aver documentato almeno 3 decisioni architetturali deducibili dal codice. Se non ne trovi, cerca: pattern di autenticazione, strategia di persistenza, pattern di comunicazione tra servizi, scelte di framework.
+
+4. **Completezza crosscutting (sezione 10)**: verifica che le sezioni 10.1-10.5 siano popolate con informazioni reali dal codice, non placeholder.
+
+5. **Coerenza con le specifiche per-servizio** (se già generate): verifica che:
+   - La matrice di dipendenza (sezione 4.1) sia coerente con gli endpoint esposti da ciascun microservizio
+   - Il diagramma ER di sistema (sezione 6.3) includa tutte le entità principali descritte nelle specifiche tecniche per-servizio
+   - I flussi end-to-end (sezione 5) siano coerenti con i casi d'uso delle specifiche funzionali per-servizio
+   - Le porte nel diagramma deployment (sezione 8.1) corrispondano ai valori reali nei file di configurazione
+
+6. **Completezza diagrammi Mermaid**: verifica la sintassi di tutti i diagrammi prima di consegnare.
 
 Se trovi incoerenze, correggile direttamente nel documento.
 """

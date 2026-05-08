@@ -146,6 +146,9 @@ PRIORITY_MAP: dict[str, str] = {
     "component": "media",
     "repository": "media",
     "dto": "media",
+    "app_config": "media",      # application.yml/appsettings.json: porte, SLA, URL servizi
+    "build_config": "media",    # pom.xml/build.gradle: dipendenze e versioni
+    "package_config": "media",  # package.json: dipendenze NPM
     "template": "bassa",
     "style": "bassa",
     "test": "bassa",

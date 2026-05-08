@@ -720,7 +720,12 @@ def _build_detection_reason(file: 'ScannedFile') -> str:
 
 # Categorie raggruppate per urgenza visiva
 _URGENCY_RED = {"business_critical", "controller", "service"}
-_URGENCY_YELLOW = {"entity", "repository", "config", "dto", "dbcontext", "angular_service", "angular_component", "angular_module"}
+_URGENCY_YELLOW = {
+    "entity", "repository", "config", "dto", "dbcontext",
+    "angular_service", "angular_component", "angular_module",
+    # Configurazioni operative: contengono porte, SLA, URL servizi, dipendenze
+    "app_config", "build_config", "package_config",
+}
 # Tutto il resto → ⚪
 
 
@@ -752,7 +757,8 @@ def _append_urgency_file_list(lines: list[str], files: list['ScannedFile']) -> N
 
     if yellow_files:
         lines.append("### 🟡 Importanti — leggere se necessario\n")
-        lines.append("Entità, repository, configurazioni e DTO di supporto.\n")
+        lines.append("Entità, repository, configurazioni, DTO e file di build/dipendenze.\n")
+        lines.append("**Leggere sempre** i file `app_config` (application.yml, appsettings.json): contengono porte, URL di servizi esterni, SLA e configurazioni operative fondamentali.\n")
         for f in sorted(yellow_files, key=lambda x: (x.category, x.path)):
             lines.append(f"- `{f.path}` [{f.category}]")
         lines.append("")
@@ -847,64 +853,110 @@ def _generate_module_context_md(
 def _build_document_structure_reference(is_hybrid: bool = False) -> str:
     """Genera un riferimento compatto alla struttura dei documenti da produrre.
 
-    Invece di iniettare i prompt completi (costosi in token), fornisce solo
-    i titoli delle sezioni con una riga di descrizione. L'LLM usa questa
-    struttura come indice e si affida al SYSTEM_PROMPT per le regole generali.
+    Fornisce i titoli delle sezioni con istruzioni operative su cosa cercare
+    nel codice per ciascuna sezione chiave. Basato su IEEE 830 (SRS),
+    IEEE 1016 (SDD) e arc42 (architettura).
     """
     lines: list[str] = []
 
+    # ── SPECIFICA FUNZIONALE ─────────────────────────────────────────────
     lines.append("### Specifica Funzionale — struttura sezioni\n")
     lines.append("Genera il documento con ESATTAMENTE queste sezioni nell'ordine indicato:\n")
     lines.append("1. **Introduzione** — scopo, ambito (includi cosa il sistema NON fa), riferimenti, glossario")
-    lines.append("2. **Descrizione generale** — panoramica, attori, vincoli, limitazioni note")
-    lines.append("3. **Requisiti funzionali** — formato [FUN-NNN], con attore, pre/post-condizioni, priorità")
-    lines.append("4. **Casi d'uso dettagliati** — diagramma Mermaid `flowchart LR` attori→UC, poi UC dettagliati con flussi alternativi e gestione errori")
-    lines.append("5. **Modello dati funzionale** — descrizione entità + diagramma Mermaid `erDiagram`")
-    lines.append("6. **Interfaccia utente** — schermate principali + diagramma Mermaid `flowchart TD` navigazione")
-    lines.append("7. **Integrazioni e interfacce esterne**")
-    lines.append("8. **Regole di business** — formato [RB-NNN] con implementazione, vincolo, impatto")
-    lines.append("9. **Requisiti non funzionali** — prestazioni, sicurezza, usabilità, disponibilità")
-    lines.append("10. **Matrice funzionalità-componenti** — tabella requisito→componente→modulo")
-    lines.append("11. **Matrice CRUD** — tabella entità×attore con operazioni C/R/U/D")
+    lines.append("2. **Descrizione generale** — panoramica, attori con ruoli e operazioni, vincoli (tecnologici/organizzativi/normativi), limitazioni note")
+    lines.append("3. **Requisiti funzionali** — formato [FUN-NNN] con attore, pre/post-condizioni, priorità. Deriva i requisiti dalle operazioni reali trovate nel codice (endpoint, metodi di servizio, logiche condizionali)")
+    lines.append("4. **Casi d'uso dettagliati** — diagramma Mermaid `flowchart LR` attori→UC, poi UC dettagliati con flussi alternativi derivati dalle eccezioni nel codice e gestione errori con HTTP status")
+    lines.append("5. **Modello dati funzionale** — descrizione entità dal punto di vista business + diagramma Mermaid `erDiagram`")
+    lines.append("6. **Dati di dominio** ⭐ — **SEZIONE CRITICA**: documenta TUTTI i valori di dominio trovati nel codice:")
+    lines.append("   - Enum Java/C#/TypeScript: elenca ogni valore con il suo significato business (es. `TipoRicorso.TAR = Tribunale Amministrativo Regionale`)")
+    lines.append("   - Costanti di stato: macchina a stati con transizioni ammesse (es. `BOZZA → INVIATO → APPROVATO`)")
+    lines.append("   - Codici e lookup table: ogni codice con descrizione (es. `CDS`, `CGA`, `CGARS`)")
+    lines.append("   - Valori di configurazione business-rilevanti (soglie, limiti, timeout applicativi)")
+    lines.append("7. **Interfaccia utente** — schermate principali + diagramma Mermaid `flowchart TD` navigazione")
+    lines.append("8. **Integrazioni e interfacce esterne** — sistemi terzi, API consumate, sistemi di autenticazione")
+    lines.append("9. **Regole di business** — formato [RB-NNN] con implementazione (classe/metodo), vincolo violato (eccezione/HTTP status), impatto sui casi d'uso")
+    lines.append("   Cerca: validazioni `@Valid`/`throws`, logica condizionale nei service, `@PreAuthorize`, vincoli di relazione tra entità")
+    lines.append("10. **Requisiti non funzionali** — prestazioni (SLA: cerca timeout, rate limit, valori di performance in configurazione e commenti), sicurezza, usabilità, disponibilità")
+    lines.append("11. **Matrice funzionalità-componenti** — tabella requisito→componente→modulo")
+    lines.append("12. **Matrice CRUD** — tabella entità×attore con operazioni C/R/U/D")
+    lines.append("")
+    lines.append("**File da leggere per questa specifica**:")
+    lines.append("- 🔴 Controller, Service, business_critical: logica principale e regole di business")
+    lines.append("- 🟡 Entity, DTO: modello dati e vincoli; **app_config** (application.yml/appsettings.json): porte, URL, SLA")
+    lines.append("- 🟡 build_config (pom.xml/build.gradle), package_config (package.json): stack tecnologico e versioni")
+    lines.append("- Cerca attivamente file con `Enum`, `Constant`, `Status`, `Type`, `Code` nel nome: contengono i dati di dominio")
     lines.append("")
     lines.append("**Sezioni senza dati**: scrivi `> ⚠️ Da completare — informazioni non rilevabili dal codice sorgente in questa fase.`")
     lines.append("**Revisione finale obbligatoria**: dopo aver scritto tutte le sezioni, torna sulle sezioni ⚠️ e verifica la coerenza interna (attori↔UC, requisiti↔UC, entità↔regole business, matrice CRUD↔UC). Correggi le incoerenze trovate.")
     lines.append("")
 
+    # ── SPECIFICA TECNICA ────────────────────────────────────────────────
     lines.append("### Specifica Tecnica — struttura sezioni\n")
     lines.append("Genera il documento con ESATTAMENTE queste sezioni nell'ordine indicato:\n")
     lines.append("1. **Introduzione** — scopo, ambito, riferimenti, glossario tecnico")
-    lines.append("2. **Architettura del sistema** — pattern architetturale, diagramma Mermaid `flowchart TD` architettura generale, diagramma componenti")
-    lines.append("3. **Stack tecnologico** — tabella tecnologia/versione/scopo (usa i dati dell'analisi statica)")
-    lines.append("4. **Dettaglio backend** — struttura package, tabella API REST completa (metodo/endpoint/descrizione/controller/autenticazione), modello dati con diagramma Mermaid `erDiagram` completo, logica di business, sicurezza e autenticazione")
+    lines.append("2. **Architettura del sistema** — pattern architetturale rilevato (layered/hexagonal/MVC/ecc.), diagramma Mermaid `flowchart TD` architettura generale, diagramma componenti")
+    lines.append("3. **Stack tecnologico** — tabella tecnologia/versione/scopo (usa i dati da pom.xml/build.gradle/package.json/requirements.txt)")
+    lines.append("4. **Dettaglio backend** — struttura package, tabella API REST completa (metodo/endpoint/descrizione/controller/autenticazione), modello dati con diagramma Mermaid `erDiagram` completo con tutti i campi, logica di business, sicurezza e autenticazione")
     lines.append("5. **Dettaglio frontend** — struttura moduli, tabella routing, componenti principali, servizi, gestione stato")
-    lines.append("6. **Configurazione e deployment** — file di configurazione, tabella variabili d'ambiente (nome/tipo/default/obbligatoria), requisiti di sistema, build e deploy")
-    lines.append("7. **Integrazioni esterne** — API consumate, database, servizi di autenticazione")
-    lines.append("8. **Requisiti non funzionali tecnici** — prestazioni, logging, gestione errori, testing")
+    lines.append("6. **Configurazione e deployment** — leggi i file app_config (application.yml, appsettings.json, application-dev.yml, application-prod.yml):")
+    lines.append("   - Tabella variabili d'ambiente (nome/tipo/default/obbligatoria/descrizione)")
+    lines.append("   - **Porte di servizio** per ogni ambiente (dev/staging/prod)")
+    lines.append("   - **URL di servizi esterni** (database, code, servizi terzi)")
+    lines.append("   - **SLA e performance targets** se presenti (timeout, connection pool, rate limit)")
+    lines.append("   - Differenze di configurazione tra ambienti (dev vs prod)")
+    lines.append("7. **Integrazioni esterne** — API consumate, database (tipo/versione/schema), servizi di autenticazione")
+    lines.append("8. **Requisiti non funzionali tecnici** — prestazioni e scalabilità, logging (framework/livelli), gestione errori (pattern usato), testing")
     lines.append("9. **Flussi operativi — Diagrammi di sequenza** — per i 3-5 flussi principali, diagramma Mermaid `sequenceDiagram` con flusso nominale E flusso di errore (alt/else)")
     lines.append("10. **Flussi asincroni** — solo se presenti: direzione, canale, payload, trigger, effetto + diagramma sequenza")
-    lines.append("11. **Gestione errori e codici di stato** — strategia error handling, tabella catalogo errori")
-    lines.append("12. **Debito tecnico e osservazioni** — solo elementi rilevati nel codice (TODO, FIXME, config insicure, bug potenziali)")
+    lines.append("11. **Gestione errori e codici di stato** — strategia error handling, tabella catalogo errori (codice/messaggio/contesto/HTTP status)")
+    lines.append("12. **Debito tecnico e osservazioni** — solo elementi rilevati nel codice (TODO, FIXME, config insicure, bug potenziali, API deprecate)")
     lines.append("13. **Appendici** — struttura progetto, script utili")
+    lines.append("")
+    lines.append("**File da leggere per questa specifica**:")
+    lines.append("- 🔴 Controller, Service, business_critical: API, logica, sicurezza")
+    lines.append("- 🟡 **app_config SEMPRE**: porte, URL, SLA, configurazione per ambiente")
+    lines.append("- 🟡 build_config/package_config: versioni esatte delle dipendenze per la tabella stack")
+    lines.append("- 🟡 Entity, dbcontext: modello dati completo per il diagramma ER")
     lines.append("")
     lines.append("**Sezioni senza dati**: scrivi `> ⚠️ Da completare — informazioni non rilevabili dal codice sorgente in questa fase.`")
     lines.append("**Revisione finale obbligatoria**: dopo aver scritto tutte le sezioni, torna sulle sezioni ⚠️, verifica la coerenza con la Specifica Funzionale (endpoint API↔casi d'uso, entità ER↔modello funzionale, ruoli sicurezza↔attori, flussi sequenza↔flussi operativi), e verifica la sintassi Mermaid di tutti i diagrammi. Correggi le incoerenze trovate.")
     lines.append("")
 
     if is_hybrid:
+        # ── ARCHITETTURA DI SISTEMA ──────────────────────────────────────
         lines.append("### Architettura di Sistema — struttura sezioni\n")
         lines.append("Genera il documento con ESATTAMENTE queste sezioni nell'ordine indicato:\n")
-        lines.append("1. **Introduzione** — scopo, panoramica sistema, limitazioni note")
-        lines.append("2. **Mappa dei microservizi** — tabella microservizi + diagramma Mermaid `flowchart TD` con tutti i servizi, frontend e comunicazioni")
-        lines.append("3. **Integrazioni e comunicazioni** — matrice di dipendenza (chi chiama chi), pattern di comunicazione, autenticazione cross-service")
-        lines.append("4. **Flussi operativi end-to-end** — 3-5 flussi principali, ciascuno con diagramma Mermaid `sequenceDiagram` che mostra la sequenza di microservizi")
-        lines.append("5. **Modello dati complessivo** — tabella DB per servizio, relazioni cross-service, diagramma Mermaid `erDiagram` di sistema")
-        lines.append("6. **Stack tecnologico unificato** — tabella tecnologia/versione/usata-da/scopo")
-        lines.append("7. **Deployment e infrastruttura** — diagramma Mermaid deployment, configurazione condivisa")
-        lines.append("8. **Requisiti non funzionali trasversali** — scalabilità, resilienza, logging centralizzato, testing cross-service")
-        lines.append("9. **Matrice microservizio-funzionalità** — tabella funzionalità→microservizio responsabile→microservizi coinvolti")
+        lines.append("1. **Introduzione** — scopo, panoramica sistema (cosa fa, per chi, in quale contesto), limitazioni note")
+        lines.append("2. **Vincoli architetturali** ⭐ — **SEZIONE CRITICA** (arc42 §2): documenta i vincoli non negoziabili:")
+        lines.append("   - Tecnologici: versioni JDK/runtime obbligatorie, database imposti, protocolli richiesti")
+        lines.append("   - Organizzativi: team, processi, standard aziendali")
+        lines.append("   - Normativi: GDPR, normative PA, standard di sicurezza")
+        lines.append("   - Infrastrutturali: ambienti di deployment, Kubernetes/Docker, cloud provider")
+        lines.append("   Cerca in: pom.xml (java.version), Dockerfile, README, commenti architetturali")
+        lines.append("3. **Mappa dei microservizi** — tabella microservizi (responsabilità/tecnologia/database/porta) + diagramma Mermaid `flowchart TD` con tutti i servizi, frontend e comunicazioni")
+        lines.append("4. **Integrazioni e comunicazioni** — matrice di dipendenza (chi chiama chi/tipo/endpoint-topic/scopo), pattern di comunicazione, autenticazione cross-service")
+        lines.append("5. **Flussi operativi end-to-end** — 3-5 flussi principali, ciascuno con diagramma Mermaid `sequenceDiagram` che mostra la sequenza di microservizi coinvolti")
+        lines.append("6. **Modello dati complessivo** — tabella DB per servizio, relazioni cross-service (ID condivisi, eventual consistency), diagramma Mermaid `erDiagram` di sistema")
+        lines.append("7. **Stack tecnologico unificato** — tabella tecnologia/versione/usata-da/scopo")
+        lines.append("8. **Deployment e infrastruttura** — diagramma Mermaid deployment con porte reali (da app_config), configurazione condivisa")
+        lines.append("9. **Decisioni architetturali** ⭐ — **SEZIONE CRITICA** (arc42 §9): documenta le 3-5 decisioni architetturali principali deducibili dal codice:")
+        lines.append("   Formato per ogni decisione:")
+        lines.append("   - **Titolo**: nome breve della decisione (es. 'Autenticazione JWT stateless')")
+        lines.append("   - **Contesto**: problema che la decisione risolve")
+        lines.append("   - **Decisione**: cosa è stato scelto")
+        lines.append("   - **Conseguenze**: vantaggi e svantaggi")
+        lines.append("   Esempi di decisioni deducibili dal codice: scelta JWT vs session, pattern Repository, uso di code async, separazione microservizi, strategia DDL")
+        lines.append("10. **Crosscutting concepts** ⭐ — **SEZIONE CRITICA** (arc42 §8): aspetti trasversali a tutti i microservizi:")
+        lines.append("    - Strategia di autenticazione/autorizzazione (come JWT viene propagato tra servizi)")
+        lines.append("    - Logging centralizzato (framework, formato, aggregazione)")
+        lines.append("    - Error handling trasversale (pattern comuni, codici di errore condivisi)")
+        lines.append("    - Gestione della configurazione (config server, variabili d'ambiente condivise)")
+        lines.append("    - Monitoring e health check")
+        lines.append("11. **Requisiti non funzionali trasversali** — scalabilità, resilienza, logging centralizzato, testing cross-service")
+        lines.append("12. **Matrice microservizio-funzionalità** — tabella funzionalità→microservizio responsabile→microservizi coinvolti")
         lines.append("")
         lines.append("**Focus**: descrivi le INTEGRAZIONI tra servizi, non i dettagli interni di ciascuno.")
+        lines.append("**File da leggere**: app_config di ogni microservizio per porte e URL reali; pom.xml/build.gradle per vincoli tecnologici.")
         lines.append("**Sezioni senza dati**: scrivi `> ⚠️ Da completare — informazioni non rilevabili dal codice sorgente in questa fase.`")
         lines.append("**Revisione finale obbligatoria**: verifica coerenza con le specifiche per-servizio (matrice dipendenze↔endpoint esposti, ER sistema↔entità per-servizio, flussi end-to-end↔casi d'uso funzionali). Correggi le incoerenze trovate.")
         lines.append("")
