@@ -218,10 +218,18 @@ Conserva mentalmente il tipo di progetto rilevato (singolo o multi) — ti servi
   `> ⚠️ Da completare — informazioni non rilevabili dal codice sorgente in questa fase.`
   NON inventare contenuto.
 
+- **File da leggere — priorità**:
+  - 🔴 Obbligatori (controller, service, business_critical): leggili SEMPRE — contengono logica principale, API, regole di business
+  - 🟡 Importanti (entity, repository, config, dto, **app_config**, build_config, package_config): leggili per dettagli su entità, configurazioni e dipendenze
+    - **I file `app_config` (application.yml, appsettings.json) vanno letti SEMPRE**: contengono porte di servizio, URL di sistemi esterni, SLA e configurazioni operative fondamentali
+  - ⚪ Supporto (test, utility, stili): leggili solo se serve contesto aggiuntivo
+
+- **Dati di dominio — sezione critica**: cerca attivamente file con `Enum`, `Constant`, `Status`, `Type`, `Code` nel nome. Contengono i valori di dominio reali (es. tipi di ricorso con codici, stati con transizioni) che devono essere documentati nella sezione "Dati di dominio" della Specifica Funzionale.
+
 - **Revisione finale obbligatoria**: dopo aver completato tutti i documenti, esegui una revisione:
   1. Torna su ogni sezione marcata `⚠️ Da completare` e verifica se hai trovato le informazioni leggendo altri file del progetto. Se sì, completa la sezione.
   2. Verifica la coerenza tra Specifica Funzionale e Specifica Tecnica (endpoint API↔casi d'uso, entità ER↔modello funzionale, ruoli↔attori).
-  3. Per i progetti multi-microservizio, verifica che l'Architettura di Sistema sia coerente con le specifiche per-servizio.
+  3. Per i progetti multi-microservizio, verifica che l'Architettura di Sistema sia coerente con le specifiche per-servizio (matrice dipendenze↔endpoint, ER sistema↔entità per-servizio).
   4. Controlla la sintassi Mermaid di tutti i diagrammi.
 
 - **Diagrammi Mermaid**: ogni documento deve includere i diagrammi previsti dalla struttura. Usa sempre sintassi standard e verifica che siano renderizzabili.
